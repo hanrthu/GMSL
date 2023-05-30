@@ -1,0 +1,16 @@
+*.egg-info
+.eggs
+__pycache__
+build
+dist
+.idea/*
+
+*.DS_Store*
+gmsl/_version.py
+
+# data and logs
+datasets/*
+data_demos/*
+output_demo/*
+wandb/*
+runs/*
