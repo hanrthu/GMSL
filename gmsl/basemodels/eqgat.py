@@ -4,8 +4,8 @@ from torch import Tensor, nn
 from torch_geometric.nn.inits import reset
 from torch_geometric.typing import OptTensor
 
-from GMSL.gmsl.modules import BatchNorm, LayerNorm
-from GMSL.gmsl.convs import EQGATConv, EQGATConvNoCross, EQGATNoFeatAttnConv
+from gmsl.modules import BatchNorm, LayerNorm
+from gmsl.convs import EQGATConv, EQGATConvNoCross, EQGATNoFeatAttnConv
 
 
 class EQGATGNN(nn.Module):

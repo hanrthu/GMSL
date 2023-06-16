@@ -79,7 +79,7 @@ class EGCL(MessagePassing):
         edge_attr: Tuple[Tensor, Tensor]):
         s, v = x
         # r 是相对的方向，单位向量
-        d = torch.pow(v[edge_index[0]] - v[edge_index[1]], exponent=2).sum(-1).sqrt()
+        d = torch.pow(v[edge_index[0]] - v[edge_index[1]] + 1e-6, exponent=2).sum(-1).sqrt()
         ms, mv = self.propagate(
             edge_index=edge_index,
             dim_size = s.size(0),
@@ -87,7 +87,7 @@ class EGCL(MessagePassing):
             v=v,
             d=d,
         )
-        
+        # print(mv.shape, mv.isnan().any())
         s = s + self.phi_h(torch.cat([s, ms], dim=-1))
         v = v + mv
         return s, v 
@@ -115,7 +115,7 @@ class EGCL_Edge_Vallina(MessagePassing):
         self.has_v_in = has_v_in
         self.attention = attention
         self.phi_m = nn.Sequential(
-            nn.Linear(2*self.si+num_radial+edges_in_df, hid_dims),
+            nn.Linear(2*self.si+num_radial+edges_in_df+self.ei, hid_dims),
             act_fn,
             nn.Linear(hid_dims, hid_dims)
             )
@@ -143,7 +143,8 @@ class EGCL_Edge_Vallina(MessagePassing):
     def aggregate(self, inputs: Tuple[Tensor, Tensor, Tensor, Tensor], index: Tensor, dim_size: Optional[int] = None) -> Tuple[Tensor, Tensor]:
         ms = scatter(inputs[0], index=index, dim=0, dim_size=dim_size, reduce="sum")
         mv = scatter(inputs[1], index=index, dim=0, dim_size=dim_size, reduce="mean")
-        me = scatter(inputs[2], index=inputs[3], dim=0, dim_size=dim_size, reduce="mean")
+        me = scatter(inputs[2], index=inputs[3], dim=0, dim_size=len(torch.unique(inputs[3])), reduce="mean")
+        # print("Unique edges:", len(torch.unique(inputs[3])))
         return ms, mv, me
     # def vallina_edge_message(self, edge_index, e_in, s_in, v_in):
     def message(
@@ -161,16 +162,19 @@ class EGCL_Edge_Vallina(MessagePassing):
         ) -> Tensor:
         # print(s_i.shape, s_j.shape, d.shape)
         # 其实对于EGNN这里还有一个edge attr，但这里省略了，假设所有的edge attr都是1吧
-        a_ij = torch.cat([s_i, s_j, e], dim=-1)
+        # 这里的e_interaction特别特别重要，涉及到边的编号问题
+        dist = torch.pow(d, 2).unsqueeze(-1)
+        a_ij = torch.cat([s_i, s_j, e, dist], dim=-1)
         ms_j = self.phi_m(a_ij)
         rel_pos = v_i - v_j
         # assert ((v_j - v_i - (d.unsqueeze(-1) * r)) < 1e-3).all()
         mv_j = rel_pos * self.phi_x(ms_j)
-        c_dist = torch.pow(e_pos[e_interaction[0]] - e_pos[e_interaction[1]], 2, dim=-1).sqrt()
+        c_dist = torch.pow(e_pos[e_interaction[0]] - e_pos[e_interaction[1]], 2).sum(dim=-1).sqrt()
         in_feature_e = e[e_interaction[0]]
         out_feature_e = e[e_interaction[1]]
         in_feature_s = s_j[connection_nodes]
-        me_in = self.phi_e(torch.cat[alpha, c_dist, in_feature_e, out_feature_e, in_feature_s])
+        # print(alpha)
+        me_in = self.phi_e(torch.cat([alpha.unsqueeze(1), c_dist.unsqueeze(1), in_feature_e, out_feature_e, in_feature_s], dim=-1))
         update_e_index = e_interaction[1]
         return ms_j, mv_j, me_in, update_e_index
     def forward(
@@ -182,11 +186,12 @@ class EGCL_Edge_Vallina(MessagePassing):
         e_interaction: Tensor,
         alphas: Tensor,
         connection_nodes: Tensor):
-        s, v = x
+        s, v, e = x
         # r 是相对的方向，单位向量
         d = torch.pow(v[edge_index[0]] - v[edge_index[1]], exponent=2).sum(-1).sqrt()
         rel_pos = v[edge_index[0]] - v[edge_index[1]]
         r = F.normalize(rel_pos, dim=-1, eps=1e-6)
+        # print(e_interaction)
         ms, mv, me = self.propagate(
             edge_index=edge_index,
             dim_size = s.size(0),
@@ -300,7 +305,7 @@ class EGCL_Edge_Fast(MessagePassing):
         ):
         s, v, e = x
         # r 是相对的方向，单位向量
-        d = torch.pow(v[edge_index[0]] - v[edge_index[1]], exponent=2).sum(-1).sqrt()
+        d = torch.pow(v[edge_index[0]] - v[edge_index[1]] + 1e-6, exponent=2).sum(-1).sqrt()
         rel_pos = v[edge_index[1]] - v[edge_index[0]]
         r = F.normalize(rel_pos, dim=-1, eps=1e-6)
         m_ri = self.cal_message_direction(e, edge_index, r, dim_size=s.size(0))
@@ -321,7 +326,7 @@ class EGCL_Edge_Fast(MessagePassing):
         # print("E:", e.shape, me.shape, edge_index.shape)
         me_in = me * (me_direction * rel_pos).sum(dim=-1, keepdim=True)
         # print(me_in.shape)
-        ttt = torch.cat([e, me_in], dim=-1)
+        # ttt = torch.cat([e, me_in], dim=-1)
         # print(ttt.shape)
         e = e + self.phi_re(torch.cat([e, me_in], dim=-1))
         return s, v, e

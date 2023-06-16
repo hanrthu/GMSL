@@ -8,7 +8,7 @@ from torch_geometric.nn.inits import reset
 from typing import Optional
 
 from gmsl.modules import DenseLayer, GatedEquivBlock, LayerNorm, GatedEquivBlockTP
-from gmsl.basemodels import EQGATGNN, PaiNNGNN, SchNetGNN, GVPNetwork, EGNN, EGNN_Edge
+from gmsl.basemodels import EQGATGNN, PaiNNGNN, SchNetGNN, GVPNetwork, EGNN, EGNN_Edge, GearNetIEConv
 
 # SEGNN
 from gmsl.segnn.segnn import SEGNN
@@ -38,7 +38,7 @@ class BaseModel(nn.Module):
         enhanced: bool = True,
         task = 'multitask'
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "egnn", "egnn_edge"]:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "egnn", "egnn_edge", "gearnet"]:
             print("Wrong select model type")
             print("Exiting code")
             exit()
@@ -100,7 +100,28 @@ class BaseModel(nn.Module):
                 vector_aggr=aggr,
                 enhanced= self.enhanced,
             )
-            
+        elif self.model_type == "gearnet":
+            concat_hidden = True
+            hidden_dims = [512, 512, 512, 512, 512, 512]
+            self.gnn = GearNetIEConv(
+                input_dim=21,
+                embedding_dim=128, # ?怎么没看到config里面设置
+                hidden_dims=hidden_dims,
+                batch_norm=True,
+                concat_hidden=concat_hidden,
+                short_cut=True,
+                readout='sum',
+                num_relation=7,
+                # 这个59维包括了inresidue（20），outresidue（20），relation（7），sequentialdist（11）和spatialdist（1）
+                edge_input_dim=59,
+                num_angle_bin=8,
+            )
+            if concat_hidden == True:
+                sdim = 0
+                for i in hidden_dims:
+                    sdim += i
+            else:
+                sdim = hidden_dims[-1]
         elif self.model_type == "schnet":
             self.gnn = SchNetGNN(
                 dims=sdim,
@@ -113,7 +134,7 @@ class BaseModel(nn.Module):
 
         self.use_norm = use_norm
 
-        if self.model_type in ["schnet", "egnn"]:
+        if self.model_type in ["schnet", "egnn", "gearnet"]:
             if use_norm:
                 self.post_norm = LayerNorm(dims=(sdim, None))
             else:
@@ -190,7 +211,8 @@ class BaseModel(nn.Module):
         # print("Protein shape:", s[(lig_flag!=0).squeeze()].shape)
         # print("Lig shape, chain shape:", lig_flag.shape, chains.shape)
         # external_flag = data.external_flag
-        s = self.init_embedding(s)
+        if self.model_type != "gearnet":
+            s = self.init_embedding(s)
         row, col = edge_index
         rel_pos = pos[row] - pos[col]
         rel_pos = F.normalize(rel_pos, dim=-1, eps=1e-6)
@@ -221,6 +243,14 @@ class BaseModel(nn.Module):
                                    alphas=alphas[0], connection_nodes=connection_nodes)
             s = self.post_lin(s)
             e = self.post_lin_e(e)
+        elif self.model_type == 'gearnet':
+            graph = data
+            graph.edge_list = torch.cat([graph.edge_index.t(), graph.edge_relations.unsqueeze(-1)], dim=-1)
+            # print("Graph Edge List:", graph.edge_list.shape)
+            input_data = data.x
+            s = self.gnn(graph, input_data)
+            print("Gearnet Output Shape:", s.shape)
+            s = self.post_lin(s)
         else:
             s = self.gnn(x=s, edge_index=edge_index, edge_attr=d, batch=batch)
             if self.use_norm:
@@ -252,6 +282,7 @@ class BaseModel(nn.Module):
             property_pred = self.property(chain_pred)
             return affinity_pred, property_pred
         elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
+            # print("Chains:", chain_pred.shape)
             property_pred = self.property(chain_pred)
             return property_pred
         elif self.task == 'affinity':

@@ -2,7 +2,7 @@ from typing import Optional, Tuple
 import torch
 from torch import Tensor, nn
 from torch_geometric.nn.inits import reset
-from eqgat.convs import EGCL, EGCL_Edge_Fast, EGCL_Edge_Vallina
+from gmsl.convs import EGCL, EGCL_Edge_Fast, EGCL_Edge_Vallina
 
 class EGNN(nn.Module):
     def __init__(
@@ -58,12 +58,13 @@ class EGNN_Edge(nn.Module):
         cutoff: Optional[float] = 5.0,
         vector_aggr: str = 'mean',
         act_fn = nn.SiLU(),
-        enhanced: bool = False
+        enhanced: bool = True
     ):
         super(EGNN_Edge, self).__init__()
         self.dims = dims
         self.depth = depth
         self.vector_aggr = vector_aggr
+        self.enhanced = enhanced
         if enhanced:
             module = EGCL_Edge_Fast
         else:
@@ -88,9 +89,18 @@ class EGNN_Edge(nn.Module):
         edge_index: Tensor,
         edge_attr: Tuple[Tensor, Tensor],
         batch: Tensor,
+        e_pos: Tensor=None, 
+        e_interaction: Tensor=None,
+        alphas: Tensor=None, 
+        connection_nodes: Tensor=None
     ) -> Tuple[Tensor, Tensor]:
         
         s, v ,e = x
-        for i in range(len(self.convs)):
-            s, v, e = self.convs[i](x=(s,v,e), edge_index=edge_index, edge_attr=edge_attr)
+        if self.enhanced:
+            for i in range(len(self.convs)):
+                s, v, e = self.convs[i](x=(s,v,e), edge_index=edge_index, edge_attr=edge_attr)
+        else:
+            for i in range(len(self.convs)):
+                s, v, e = self.convs[i](x=(s,v,e), edge_index=edge_index, edge_attr=edge_attr, e_pos=e_pos, e_interaction=e_interaction,
+                                   alphas=alphas, connection_nodes=connection_nodes)
         return s, v, e

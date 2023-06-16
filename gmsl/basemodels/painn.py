@@ -4,8 +4,8 @@ from torch import Tensor, nn
 from torch_geometric.nn.inits import reset
 from torch_geometric.typing import OptTensor
 
-from eqgat.modules import BatchNorm, LayerNorm
-from eqgat.convs import PaiNNConv
+from gmsl.modules import BatchNorm, LayerNorm
+from gmsl.convs import PaiNNConv
 
 
 class PaiNNGNN(nn.Module):

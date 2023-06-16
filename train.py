@@ -8,7 +8,9 @@ from typing import Optional, Tuple
 import math
 import pandas as pd
 import pytorch_lightning as pl
+from pytorch_lightning.strategies.ddp import DDPStrategy
 from pytorch_lightning.loggers import WandbLogger
+import warnings
 
 import torch
 from pytorch_lightning.callbacks import (
@@ -45,10 +47,10 @@ except NameError:
     PATH = "experiments/lba/data"
     MODEL_DIR = "experiments/lba/models"
 
-
 if not osp.exists(MODEL_DIR):
     os.makedirs(MODEL_DIR)
 
+# warnings.filterwarnings('ignore')
 # TODO: 1、共享encoder，设置loss函数进行计算
 # PPI添加方案1：在训练时，随机打包两个任务的batch加载. 
 # PPI添加方案2：在训练时，先训完一个任务的所有batch，再训练另一个任务的batch. Done
@@ -57,7 +59,7 @@ class CustomBatchSampler(Sampler[List[int]]):
     def __init__(self, batch_size_main: int = 64, batch_size_aux: int = 4, data_source: CustomAuxDataset = None, sample_strategy: int = 0, drop_last: bool = False) -> None:
         """
             sample_strategy: 0 means sampling main task first then sample the aux task.
-                             1 means sampling random batches from either the main task or the aux task.
+                             1 means sampling random batches from eicther the main task or the aux task.
         """
         super().__init__(data_source)
         self.data_source = data_source
@@ -152,31 +154,31 @@ class CustomBatchSampler(Sampler[List[int]]):
 class LBADataLightning(pl.LightningDataModule):
     def __init__(
         self,
-        root,
-        transform,
         drop_last,
         sample_strategy,
         cache_dir: str = 'ppi_cache.pkl',
         interface_only: bool = False,
-        processed: bool = False,
         batch_size: int = 128,
         num_workers: int = 4,
         train_task: str = 'multi',
-        train_split: str = 'train_all'
+        train_split: str = 'train_all',
+        val_split: str = 'val',
+        test_split: str = 'test',
+        gearnet = False
     ):
         super(LBADataLightning, self).__init__()
 
-        self.root = root
-        self.transform = transform
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.processed = processed
         self.drop_last = drop_last
         self.sample_strategy = sample_strategy
         self.cache_dir = cache_dir
         self.interface = interface_only
         self.train_task= train_task
         self.train_split = train_split
+        self.val_split = val_split
+        self.test_split = test_split
+        self.gearnet = gearnet
     @property
     def num_features(self) -> int:
         return 9
@@ -186,32 +188,13 @@ class LBADataLightning(pl.LightningDataModule):
         return 1
 
     def prepare_data(self):
-        if not self.processed:
-            _ = LMDBDataset(osp.join(self.root, "train"), transform=self.transform)
-        else:
-            _ = CustomLBADataset(split="train")
+        _ = CustomMultiTaskDataset(split='train', task=self.train_task)
         return None
 
     def setup(self, stage: Optional[str] = None):
-        # 这里需要改一下任务逻辑，不再是辅助的逻辑了
-        if not self.processed:
-            # self.lba_train_dataset = LMDBDataset(
-            #     osp.join(self.root, "train"), transform=self.transform
-            # )
-            self.lba_train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task)
-            self.train_dataset = self.lba_train_dataset
-            self.val_dataset = CustomMultiTaskDataset(split='val', task=self.train_task)
-            self.test_dataset = CustomMultiTaskDataset(split='test', task=self.train_task)
-        else:
-            # self.train_dataset = CustomLBADataset(split="train")
-            self.ppi_train_dataset = CustomPPIDataset(interface=self.interface, ppi_dir=self.ppi_dir, split='train')
-            self.lba_train_dataset = CustomLBADataset(split='train')
-            self.ec_train_dataset = CustomProteinFunctionDataset(split='train')
-            self.train_dataset = CustomAuxDataset(self.lba_train_dataset, self.ppi_train_dataset)
-            self.ppi_train_dataset = CustomPPIDataset(interface=self.interface, ppi_dir=self.ppi_dir, split='val')
-            self.ppi_train_dataset = CustomPPIDataset(interface=self.interface, ppi_dir=self.ppi_dir, split='test')
-            # self.val_dataset = CustomLBADataset(split="val")
-            # self.test_dataset = CustomLBADataset(split="test")
+        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, gearnet=self.gearnet)
+        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, gearnet=self.gearnet)
+        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, gearnet=self.gearnet)
 
     def train_dataloader(self, shuffle: bool = False):
         # if self.auxiliary != None:
@@ -233,12 +216,8 @@ class LBADataLightning(pl.LightningDataModule):
             shuffle=shuffle,
             num_workers=self.num_workers,
             pin_memory=True,
-            persistent_workers=True
+            persistent_workers=True,
         )
-        # if len(self.train_dataset) > len(self.aux_train_dataset):
-        #     return zip(cycle(aux_loader), train_loader)
-        # else:
-        #     return zip(aux_loader, cycle(train_loader))
 
     def val_dataloader(self, shuffle: bool = False):
         return DataLoader(
@@ -247,7 +226,7 @@ class LBADataLightning(pl.LightningDataModule):
             shuffle=shuffle,
             num_workers=self.num_workers,
             pin_memory=True,
-            persistent_workers=True
+            persistent_workers=True,
         )
 
     def test_dataloader(self, shuffle: bool = False):
@@ -257,7 +236,7 @@ class LBADataLightning(pl.LightningDataModule):
             shuffle=shuffle,
             num_workers=self.num_workers,
             pin_memory=True,
-            persistent_workers=True
+            persistent_workers=True,
         )
 
 
@@ -284,7 +263,7 @@ def get_argparse():
     parser.add_argument("--vdim", type=int, default=16)
     parser.add_argument("--depth", type=int, default=3)
     parser.add_argument(
-        "--model_type", type=str, default="eqgat", choices=["eqgat", "painn", "schnet", "segnn", "egnn", "egnn_edge"]
+        "--model_type", type=str, default="eqgat", choices=["eqgat", "painn", "schnet", "segnn", "egnn", "egnn_edge", "gearnet"]
     )
     parser.add_argument("--cross_ablate", default=False, action="store_true")
     parser.add_argument("--no_feat_attn", default=False, action="store_true")
@@ -316,6 +295,8 @@ def get_argparse():
     parser.add_argument("--run_name", default='tmp', help='Name a new run')
     parser.add_argument("--train_task", default='multi', help='Choose a task to train the model')
     parser.add_argument("--train_split", default='train_all', help='Choose a split to train the model')
+    parser.add_argument("--val_split", default='val', help='Choose a split to val the model')
+    parser.add_argument("--test_split", default='test', help='Choose a split to test the model')
     parser.add_argument("--remove_hydrogen", default=False, action='store_true', help='Choose whether to remove hydrogen elements')
     parser.add_argument("--offset_strategy", default=0, type=int, help='choose the offset strategy for node embedding, 0: no offset, 1:only distinguish ligand and protein, 2: distinguish ligand and every amino acid.')
     args = parser.parse_args()
@@ -325,6 +306,9 @@ def get_argparse():
 
 if __name__ == "__main__":
 
+    # Multiprocess Setting to speedup dataloader
+    torch.multiprocessing.set_start_method('forkserver')
+    torch.set_float32_matmul_precision('high')
     args = get_argparse()
     device = args.device
     if device != "cpu":
@@ -333,17 +317,10 @@ if __name__ == "__main__":
         else:
             device = [int(i) for i in device.split(',')]
     if args.wandb:
-        wandb.init(project='eqgat', name=args.run_name)
+        wandb.init(project='gmsl', name=args.run_name)
         wandb_logger = WandbLogger()
     else:
-        wandb_logger = WandbLogger()
-    transform_lba = GNNTransformLBA(
-        cutoff=4.5,
-        remove_hydrogens=args.remove_hydrogen,
-        max_num_neighbors=32,
-        supernode=args.super_node,
-        offset_strategy=args.offset_strategy
-    )
+        wandb_logger = None
 
     if args.train_task == 'multi':
         model = MultiTaskModel(
@@ -360,7 +337,7 @@ if __name__ == "__main__":
             factor_scheduler=0.75,
             enhanced=args.enhanced,
             offset_strategy = args.offset_strategy,
-            task=args.train_task
+            task=args.train_task,
         )
         print(
             f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
@@ -420,9 +397,6 @@ if __name__ == "__main__":
         seed += run
         print(f"Starting run {run} with seed {seed}")
         datamodule = LBADataLightning(
-            root=DATA_DIR,
-            transform=transform_lba,
-            processed=False,
             batch_size=args.batch_size,
             num_workers=args.num_workers,
             drop_last=args.drop_last,
@@ -430,7 +404,10 @@ if __name__ == "__main__":
             cache_dir=args.cache_dir,
             interface_only=args.interface_only,
             train_task=args.train_task,
-            train_split=args.train_split
+            train_split=args.train_split,
+            val_split=args.val_split,
+            test_split=args.test_split,
+            gearnet=True if args.model_type=='gearnet' else False
             # auxiliary=None
         )
         model = model_cls(
@@ -467,7 +444,7 @@ if __name__ == "__main__":
             accelerator="gpu" if device != "cpu" else "cpu",
             max_epochs=args.max_epochs,
             precision=32,
-            amp_backend="native",
+            # amp_backend="native",
             callbacks=[
                 checkpoint_callback,
                 LearningRateMonitor(),
@@ -477,7 +454,7 @@ if __name__ == "__main__":
             gradient_clip_val=args.gradient_clip_val,
             accumulate_grad_batches=args.batch_accum_grad,
             logger=wandb_logger,
-            
+            strategy=DDPStrategy(find_unused_parameters=True)
         )
 
         start_time = datetime.now()

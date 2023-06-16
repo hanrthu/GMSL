@@ -10,16 +10,20 @@ from Bio.PDB import PDBParser
 import re
 import pickle
 import io
+import json
 import gzip
 
-from torch_geometric.data import Data, Dataset
+from torch_geometric.data import Dataset
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 import logging
 import lmdb
 from pathlib import Path
+import numpy as np
+import openbabel
+from openbabel import pybel
 
-from utils import prot_graph_transform
+from utils import MyData, prot_graph_transform
 
 
 def chunks_n_sized(l, n):
@@ -43,7 +47,6 @@ except NameError:
 DATA_DIR = osp.join(PATH, "split-by-sequence-identity-30/data")
 # DATA_DIR = osp.join(PATH, "split-by-sequence-identity-60/data")
 
-
 class GNNTransformLBA(object):
     def __init__(
         self,
@@ -61,7 +64,7 @@ class GNNTransformLBA(object):
         self.supernode = supernode
         self.offset_strategy = offset_strategy
 
-    def __call__(self, item: Dict) -> Data:
+    def __call__(self, item: Dict) -> MyData:
         # print("Using Transform LBA")
         ligand_df = item["atoms_ligand"]
         if self.pocket_only:
@@ -88,7 +91,7 @@ class GNNTransformLBA(object):
         graph.lig_flag = lig_flag
 
         graph.prot_id = item["id"]
-        graph.smiles = item["smiles"]
+        # graph.smiles = item["smiles"]
         graph.type = 'lba'
         return graph
 
@@ -103,7 +106,7 @@ class GNNTransformPPI(object):
         self.cutoff = cutoff
         self.remove_hydrogens = remove_hydrogens
         self.max_num_neighbors = max_num_neighbors
-    def __call__(self, item: Dict) -> Data:
+    def __call__(self, item: Dict) -> MyData:
         if self.interface_only:
             # print("Using Interface Only!")
             protein_df = item["interface_protein"]
@@ -146,7 +149,7 @@ class GNNTransformProteinFunction(object):
         self.max_num_neighbors = max_num_neighbors
         self.num_classes = num_classes
         self.type = 'ec'
-    def __call__(self, item: Dict) -> Data:
+    def __call__(self, item: Dict) -> MyData:
         protein_df = item['atoms_protein']
         flag_list = []
         for i in range(len(protein_df)):
@@ -227,6 +230,8 @@ class LMDBDataset(Dataset):
     def prepare(self):
         if not os.path.exists(self.data_file / 'data.cache'):
             print("Loading dataset into memory and generating cache...")
+            n=64
+            count = 0
             for index in tqdm(range(self._num_examples)):
                 if not 0 <= index < self._num_examples:
                     raise IndexError(index)
@@ -256,14 +261,40 @@ class LMDBDataset(Dataset):
                 if self._transform:
                     item = self._transform(item)
                 self.items.append(item)
+                count += 1
+                if count == n:
+                    break
             pickle.dump(self.items, open(self.data_file / 'data.cache', 'wb'))
         else:
             print("Cache found, loading cache...")
             self.items = pickle.load(open(self.data_file / 'data.cache', 'rb'))
-            
+            # print(self.items[0])
+            # print("Done")
 
     def __getitem__(self, index: int):
-        return self.items[index]
+        # 普通的data类型
+        item = self.items[index]
+        to_return = MyData(
+            x=item.x,
+            pos=item.pos,
+            edge_weights=item.edge_weights,
+            edge_index=item.edge_index,
+            e=item.e,
+            # external_flag=external_edge_flag
+            e_pos = item.e_pos,
+            e_interaction = item.e_interaction,
+            alphas = item.alphas,
+            connection_nodes = item.connection_nodes,
+            y = item.y,
+            lig_flag = item.lig_flag,
+            prot_id = item.prot_id,
+            smiles = item.smiles,
+            type=item.type
+            )
+        # print(to_return)
+        # 变成一个Mydata类型
+        return to_return
+        # return item
 
 
 class CustomAuxDataset(Dataset):
@@ -704,6 +735,53 @@ class CustomLBADataset(Dataset):
         # __getitem__ handled by parent-class.
         # https://github.com/rusty1s/pytorch_geometric/blob/master/torch_geometric/data/dataset.py#L184-L203
         return datadict
+    
+class PDBBind2016Dataset(Dataset):
+    """
+    Adjusting PDBBind2016 in SIGN to this dataset
+    """
+    def __init__(self, root_dir: str = './data/PDBbind_2016/', score_dir: str = './data/PDBBind_2016/refined-set/index/INDEX_general_PL_data.2016',
+                remove_hoh = True, remove_hydrogen = False, remove_ic50 = True, pocket = True, cutoff = 6, split : str = 'train', transform=None):
+        super(PDBBind2016Dataset, self).__init__(root_dir)
+        print("Initializing PDBBind2016 Dataset...")
+        self.root_dir = root_dir
+        self.score_dir = score_dir
+        self.remove_hoh = remove_hoh
+        self.remove_hydrogen = remove_hydrogen
+        self.remove_ic50 = remove_ic50
+        self.transform_func = transform
+        self.cutoff = cutoff
+        # self.files = [i for i in os.listdir(root_dir) if i.endswith('.pdb')]
+        if split not in ['train', 'val', 'test']:
+            print("Wrong selected split. Have to choose between ['train', 'val', 'test']")
+            print("Exiting code")
+            exit()
+        self.split = split
+        self.process_complexes()
+    def process_complexes(self):
+        self.processed_complexes = []
+        # excluded = ['4bps']
+        # excluded = ['4yhq']
+        cache_dir = os.path.join(self.root_dir, 'pdbbind2016_{}.pkl'.format(self.split))
+        if os.path.exists(cache_dir):
+            print("Start loading cached PDBBind2016 files...")
+            self.processed_complexes = pickle.load(open(cache_dir, 'rb'))
+            # if self.split == 'train':
+            #     self.processed_complexes = [i for i in self.processed_complexes if i["id"] in excluded]
+                # self.processed_complexes[0]['scores']["neglog_aff"] = torch.tensor(5.01, dtype=torch.float32)
+            # self.special = [i for i in self.processed_complexes if i["id"] in excluded]
+            # print(self.special)
+            print("Dataset size:", self.len())
+        else:
+            print("Cache not found! Please run preprocess_pdbbind2016 first!")
+            exit()
+            
+    def len(self):
+        return len(self.processed_complexes)
+    def get(self, idx):
+        return self.transform_func(self.processed_complexes[idx])
+        
+
 
 
 if __name__ == "__main__":

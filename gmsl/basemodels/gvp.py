@@ -7,8 +7,8 @@ from torch_geometric.nn import radius_graph
 from torch_geometric.nn.inits import reset
 from torch_scatter import scatter
 
-from eqgat.convs.gvp import GVP, GVPConvLayer, LayerNorm
-from eqgat.modules import GaussianExpansion
+from gmsl.convs.gvp import GVP, GVPConvLayer, LayerNorm
+from gmsl.modules import GaussianExpansion
 
 
 class GVPGNN(nn.Module):
