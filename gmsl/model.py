@@ -249,7 +249,7 @@ class BaseModel(nn.Module):
             # print("Graph Edge List:", graph.edge_list.shape)
             input_data = data.x
             s = self.gnn(graph, input_data)
-            print("Gearnet Output Shape:", s.shape)
+            # print("Gearnet Output Shape:", s.shape)
             s = self.post_lin(s)
         else:
             s = self.gnn(x=s, edge_index=edge_index, edge_attr=d, batch=batch)

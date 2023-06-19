@@ -208,13 +208,13 @@ class MultiTaskModel(pl.LightningModule):
         else:
             l2_loss = torch.tensor([torch.nan])
         if not torch.isnan(bce_loss) and not torch.isnan(l2_loss):
-            print("BCE Loss:", bce_loss, "L2 Loss:", l2_loss)
+            # print("BCE Loss:", bce_loss, "L2 Loss:", l2_loss)
             loss = 10 * bce_loss + l2_loss
         elif not torch.isnan(bce_loss):
-            print("BCE Loss:", bce_loss)
+            # print("BCE Loss:", bce_loss)
             loss = 10 * bce_loss
         elif not torch.isnan(l2_loss):
-            print("L2 Loss:", l2_loss)
+            # print("L2 Loss:", l2_loss)
             loss = l2_loss
         else:
             print("Found a batch with no annotations!")

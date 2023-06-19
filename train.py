@@ -1,18 +1,22 @@
-import json
+
 import os
+import json
+import time
+import yaml
+import wandb
+import torch
+import random
+import pandas as pd
 import os.path as osp
+
 from argparse import ArgumentParser
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional
 
-import math
-import pandas as pd
 import pytorch_lightning as pl
 from pytorch_lightning.strategies.ddp import DDPStrategy
 from pytorch_lightning.loggers import WandbLogger
-import warnings
 
-import torch
 from pytorch_lightning.callbacks import (
     LearningRateMonitor,
     ModelCheckpoint,
@@ -21,42 +25,25 @@ from pytorch_lightning.callbacks import (
 from task_models import MultiTaskModel, PropertyModel, AffinityModel
 from torch_geometric.loader import DataLoader
 
-import random
-import wandb
 from utils.multitask_data import CustomMultiTaskDataset
-from utils.data import (
-    DATA_DIR,
-    CustomLBADataset,
-    GNNTransformLBA,
-    GNNTransformPPI,
-    CustomPPIDataset,
-    CustomProteinFunctionDataset,
-    CustomAuxDataset,
-    PDBBind2016Dataset,
-    # LMDBDataset,
-)
-from atom3d.datasets import LMDBDataset
-from itertools import cycle
+# from itertools import cycle
 from torch.utils.data import Sampler
-from typing import Sized, List
+from typing import List
 
 try:
-    PATH = osp.join(osp.dirname(osp.realpath(__file__)), "data")
     MODEL_DIR = osp.join(osp.dirname(osp.realpath(__file__)), "models")
 except NameError:
-    PATH = "experiments/lba/data"
-    MODEL_DIR = "experiments/lba/models"
+    MODEL_DIR = "./models"
 
 if not osp.exists(MODEL_DIR):
     os.makedirs(MODEL_DIR)
 
-# warnings.filterwarnings('ignore')
 # TODO: 1、共享encoder，设置loss函数进行计算
 # PPI添加方案1：在训练时，随机打包两个任务的batch加载. 
 # PPI添加方案2：在训练时，先训完一个任务的所有batch，再训练另一个任务的batch. Done
 
 class CustomBatchSampler(Sampler[List[int]]):
-    def __init__(self, batch_size_main: int = 64, batch_size_aux: int = 4, data_source: CustomAuxDataset = None, sample_strategy: int = 0, drop_last: bool = False) -> None:
+    def __init__(self, batch_size_main: int = 64, batch_size_aux: int = 4, data_source = None, sample_strategy: int = 0, drop_last: bool = False) -> None:
         """
             sample_strategy: 0 means sampling main task first then sample the aux task.
                              1 means sampling random batches from eicther the main task or the aux task.
@@ -155,30 +142,26 @@ class LBADataLightning(pl.LightningDataModule):
     def __init__(
         self,
         drop_last,
-        sample_strategy,
-        cache_dir: str = 'ppi_cache.pkl',
-        interface_only: bool = False,
         batch_size: int = 128,
         num_workers: int = 4,
         train_task: str = 'multi',
         train_split: str = 'train_all',
         val_split: str = 'val',
         test_split: str = 'test',
-        gearnet = False
+        gearnet = False,
+        alpha_only = False,
     ):
         super(LBADataLightning, self).__init__()
 
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.drop_last = drop_last
-        self.sample_strategy = sample_strategy
-        self.cache_dir = cache_dir
-        self.interface = interface_only
         self.train_task= train_task
         self.train_split = train_split
         self.val_split = val_split
         self.test_split = test_split
         self.gearnet = gearnet
+        self.alpha_only = alpha_only
     @property
     def num_features(self) -> int:
         return 9
@@ -192,9 +175,9 @@ class LBADataLightning(pl.LightningDataModule):
         return None
 
     def setup(self, stage: Optional[str] = None):
-        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, gearnet=self.gearnet)
-        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, gearnet=self.gearnet)
-        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, gearnet=self.gearnet)
+        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
+        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
+        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
 
     def train_dataloader(self, shuffle: bool = False):
         # if self.auxiliary != None:
@@ -256,51 +239,59 @@ def get_argparse():
     parser = ArgumentParser(
         description="Main training script for Equivariant GNNs on LBA Data."
     )
-
     # Training Setting
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--sdim", type=int, default=100)
-    parser.add_argument("--vdim", type=int, default=16)
-    parser.add_argument("--depth", type=int, default=3)
-    parser.add_argument(
-        "--model_type", type=str, default="eqgat", choices=["eqgat", "painn", "schnet", "segnn", "egnn", "egnn_edge", "gearnet"]
-    )
-    parser.add_argument("--cross_ablate", default=False, action="store_true")
-    parser.add_argument("--no_feat_attn", default=False, action="store_true")
+    # parser.add_argument("--batch_size", type=int, default=16)
+    # parser.add_argument("--sdim", type=int, default=100)
+    # parser.add_argument("--vdim", type=int, default=16)
+    # parser.add_argument("--depth", type=int, default=3)
+    parser.add_argument("--config", type=str, default=None)
+    # parser.add_argument(
+    #     "--model_type", type=str, default="eqgat", choices=["eqgat", "painn", "schnet", "segnn", "egnn", "egnn_edge", "gearnet"]
+    # )
+    # parser.add_argument("--cross_ablate", default=False, action="store_true")
+    # parser.add_argument("--no_feat_attn", default=False, action="store_true")
 
-    parser.add_argument("--nruns", type=int, default=3)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--num_radial", type=int, default=32)
+    # parser.add_argument("--nruns", type=int, default=3)
+    # parser.add_argument("--seed", type=int, default=0)
+    # parser.add_argument("--num_radial", type=int, default=32)
 
-    parser.add_argument("--num_workers", type=int, default=4)
+    # parser.add_argument("--num_workers", type=int, default=4)
 
-    parser.add_argument("--learning_rate", type=float, default=1e-4)
-    parser.add_argument("--batch_accum_grad", type=int, default=1)
+    # parser.add_argument("--learning_rate", type=float, default=1e-4)
+    # parser.add_argument("--batch_accum_grad", type=int, default=1)
 
-    parser.add_argument("--weight_decay", type=float, default=0.0)
-    parser.add_argument("--max_epochs", type=int, default=20)
-    parser.add_argument("--gradient_clip_val", type=float, default=10)
-    parser.add_argument("--patience_epochs_lr", type=int, default=10)
+    # parser.add_argument("--weight_decay", type=float, default=0.0)
+    # parser.add_argument("--max_epochs", type=int, default=20)
+    # parser.add_argument("--gradient_clip_val", type=float, default=10)
+    # parser.add_argument("--patience_epochs_lr", type=int, default=10)
 
-    parser.add_argument("--save_dir", type=str, default="base_eqgat")
-    parser.add_argument("--device", default="0", type=str)
-    parser.add_argument("--load_ckpt", default=None)
-    parser.add_argument("--drop_last", default=False)
-    parser.add_argument("--sample_strategy", default=0, type=int)
-    parser.add_argument("--cache_dir", default='ppi_cache.pkl', type=str)
-    parser.add_argument("--interface_only", default=False, action='store_true')
-    parser.add_argument("--enhanced", default=False, action='store_true', help="for EGNN_Edge, choose the enhanced version")
-    parser.add_argument("--super_node", default=False, action='store_true', help="Add a supernode or not")
-    parser.add_argument("--wandb", default=False, action='store_true', help='Use wandb logger')
-    parser.add_argument("--run_name", default='tmp', help='Name a new run')
-    parser.add_argument("--train_task", default='multi', help='Choose a task to train the model')
-    parser.add_argument("--train_split", default='train_all', help='Choose a split to train the model')
-    parser.add_argument("--val_split", default='val', help='Choose a split to val the model')
-    parser.add_argument("--test_split", default='test', help='Choose a split to test the model')
-    parser.add_argument("--remove_hydrogen", default=False, action='store_true', help='Choose whether to remove hydrogen elements')
-    parser.add_argument("--offset_strategy", default=0, type=int, help='choose the offset strategy for node embedding, 0: no offset, 1:only distinguish ligand and protein, 2: distinguish ligand and every amino acid.')
+    # parser.add_argument("--save_dir", type=str, default="base_eqgat")
+    # parser.add_argument("--device", default="0", type=str)
+    # parser.add_argument("--load_ckpt", default=None)
+    # parser.add_argument("--drop_last", default=False)
+    # # parser.add_argument("--sample_strategy", default=0, type=int)
+    # parser.add_argument("--enhanced", default=False, action='store_true', help="for EGNN_Edge, choose the enhanced version")
+    # parser.add_argument("--super_node", default=False, action='store_true', help="Add a supernode or not")
+    # parser.add_argument("--wandb", default=False, action='store_true', help='Use wandb logger')
+    # parser.add_argument("--run_name", default='tmp', help='Name a new run')
+    # parser.add_argument("--train_task", default='multi', help='Choose a task to train the model')
+    # parser.add_argument("--train_split", default='train_all', help='Choose a split to train the model')
+    # parser.add_argument("--val_split", default='val', help='Choose a split to val the model')
+    # parser.add_argument("--test_split", default='test', help='Choose a split to test the model')
+    # parser.add_argument("--alpha_only", default=False, action='store_true', help='Choose whether to use alpha carbon only')
+    # parser.add_argument("--remove_hydrogen", default=False, action='store_true', help='Choose whether to remove hydrogen elements')
+    # parser.add_argument("--offset_strategy", default=0, type=int, help='choose the offset strategy for node embedding, 0: no offset, 1:only distinguish ligand and protein, 2: distinguish ligand and every amino acid.')
     args = parser.parse_args()
-
+    if args.config != None:
+        with open(args.config, 'r') as f:
+            content = f.read()
+        config_dict = yaml.load(content, Loader=yaml.FullLoader)
+        # print("Config Dict:", config_dict)
+    else:
+        config_dict = {}
+    for k, v in config_dict.items():
+        setattr(args, k, v)
+    print("Config Dict:", args)
     return args
 
 
@@ -311,13 +302,14 @@ if __name__ == "__main__":
     torch.set_float32_matmul_precision('high')
     args = get_argparse()
     device = args.device
-    if device != "cpu":
-        if ',' not in device:
-            device = [int(device)]
-        else:
-            device = [int(i) for i in device.split(',')]
+    # if device != "cpu":
+    #     if ',' not in device:
+    #         device = [int(device)]
+    #     else:
+    #         device = [int(i) for i in device.split(',')]
     if args.wandb:
-        wandb.init(project='gmsl', name=args.run_name)
+        name = args.run_name + time.strftime("%Y-%m-%d-%H-%M-%S")
+        wandb.init(project='gmsl', name=name)
         wandb_logger = WandbLogger()
     else:
         wandb_logger = None
@@ -400,14 +392,13 @@ if __name__ == "__main__":
             batch_size=args.batch_size,
             num_workers=args.num_workers,
             drop_last=args.drop_last,
-            sample_strategy = args.sample_strategy,
-            cache_dir=args.cache_dir,
-            interface_only=args.interface_only,
+            # sample_strategy = args.sample_strategy,
             train_task=args.train_task,
             train_split=args.train_split,
             val_split=args.val_split,
             test_split=args.test_split,
-            gearnet=True if args.model_type=='gearnet' else False
+            gearnet=True if args.model_type=='gearnet' else False,
+            alpha_only=args.alpha_only
             # auxiliary=None
         )
         model = model_cls(

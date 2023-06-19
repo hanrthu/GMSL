@@ -34,7 +34,7 @@ class CustomMultiTaskDataset(Dataset):
     The Custom MultiTask Dataset with uniform labels
     """
     def __init__(self, root_dir: str = './datasets/MultiTask', label_dir: str = './datasets/MultiTask/uniformed_labels.json',
-                remove_hoh = True, remove_hydrogen = False, cutoff = 6, split : str = 'train', task = 'multi', gearnet = False):
+                remove_hoh = True, remove_hydrogen = False, cutoff = 6, split : str = 'train', task = 'multi', gearnet = False, alpha_only=False):
         super(CustomMultiTaskDataset, self).__init__(root_dir)
         print("Initializing MultiTask Dataset...")
         self.root_dir = root_dir
@@ -45,6 +45,7 @@ class CustomMultiTaskDataset(Dataset):
         self.remove_hydrogen = remove_hydrogen
         self.cutoff = cutoff
         self.gearnet = gearnet
+        self.alpha_only = alpha_only
         file_dir = os.path.join(root_dir, split+'.txt')        
         self.ec_root = './datasets/EnzymeCommission/all'
         self.go_root = './datasets/GeneOntology/all'
@@ -207,7 +208,7 @@ class CustomMultiTaskDataset(Dataset):
             print("Complexes Before Task Selection:", self.len())
             self.choose_task_items()
             print("Dataset size:", self.len())
-            if self.gearnet:
+            if self.alpha_only:
                 print("Only retaining Alpha Carbon atoms for the atom_df")
                 self.retain_alpha_carbon()
     def correctness_check(self, chain_uniprot_info, complx):
