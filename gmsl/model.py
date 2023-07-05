@@ -8,7 +8,7 @@ from torch_geometric.nn.inits import reset
 from typing import Optional
 
 from gmsl.modules import DenseLayer, GatedEquivBlock, LayerNorm, GatedEquivBlockTP
-from gmsl.basemodels import EQGATGNN, PaiNNGNN, SchNetGNN, GVPNetwork, EGNN, EGNN_Edge, GearNetIEConv
+from gmsl.basemodels import EQGATGNN, PaiNNGNN, SchNetGNN, GVPNetwork, EGNN, EGNN_Edge, GearNetIEConv, TaskAwareReadout
 
 # SEGNN
 from gmsl.segnn.segnn import SEGNN
@@ -152,38 +152,53 @@ class BaseModel(nn.Module):
                                             out_dims=(sdim, None),
                                             hs_dim=sdim, hv_dim=vdim,
                                             use_mlp=False)
-        self.downstream = nn.Sequential(
-            DenseLayer(sdim, sdim, activation=nn.SiLU(), bias=True),
-            nn.Dropout(dropout),
-            DenseLayer(sdim, out_units, bias=True)
-        )
         
-        if self.task in ['affinity', 'multi']:
-            self.affinity = nn.Sequential(
-                DenseLayer(sdim, sdim, activation=nn.SiLU(), bias=True),
-                nn.Dropout(dropout),
-                DenseLayer(sdim, 1, bias=True)
-            )
-        
+        if self.task in ['lba', 'ppi', 'multi']:
+            self.affinity_heads = nn.ModuleList()
+            if self.task == 'lba' or self.task == 'ppi':
+                self.affinity_heads.append(nn.Sequential(
+                    DenseLayer(sdim, sdim, activation=nn.SiLU(), bias=True),
+                    nn.Dropout(dropout),
+                    DenseLayer(sdim, 1, bias=True)
+                ))
+            else:
+                lba = nn.Sequential(
+                    DenseLayer(sdim, sdim, activation=nn.SiLU(), bias=True),
+                    nn.Dropout(dropout),
+                    DenseLayer(sdim, 1, bias=True)
+                )
+                ppi = nn.Sequential(
+                    DenseLayer(sdim, sdim, activation=nn.SiLU(), bias=True),
+                    nn.Dropout(dropout),
+                    DenseLayer(sdim, 1, bias=True)
+                )
+                self.affinity_heads.append(lba)
+                self.affinity_heads.append(ppi)
         if self.task == 'ec':
-            class_num = 538
+            class_nums = [538]
         elif self.task == 'mf':
-            class_num = 490
+            class_nums = [490]
         elif self.task == 'bp':
-            class_num = 1944
+            class_nums = [1944]
         elif self.task == 'cc':
-            class_num = 321
+            class_nums = [321]
         elif self.task == 'go':
-            class_num = 490 + 1944 + 321
+            class_nums = [490, 1944, 321]
         elif self.task == 'multi':
-            class_num = 538 + 490 + 1944 + 321
-        if self.task != "affinity":
-            self.property = nn.Sequential(
+            class_nums = [538, 490, 1944, 321]
+        else:
+            class_nums = []
+        # print("Class Nums:", class_nums)
+        if len(class_nums) > 0:
+            heads = [nn.Sequential(
                 DenseLayer(sdim, sdim, activation=nn.SiLU(), bias=True),
                 nn.Dropout(dropout),
                 DenseLayer(sdim, class_num, bias=True),
                 nn.Sigmoid()
-            )
+            ) for class_num in class_nums]
+            self.property_heads = nn.ModuleList()
+            for head in heads:
+                self.property_heads.append(head)
         
         if self.model_type == "egnn_edge":
             # 辅助任务，预测距离
@@ -192,13 +207,13 @@ class BaseModel(nn.Module):
                 nn.Dropout(dropout),
                 DenseLayer(sdim, 1, bias=True)
             )
-            self.downstream = nn.Sequential(
-                DenseLayer(sdim+edim, sdim, activation=nn.SiLU(), bias=True),
-                nn.Dropout(dropout),
-                DenseLayer(sdim, out_units, bias=True)
-            )
-
+        self.affinity_prompts = nn.Parameter(torch.ones(len(self.affinity_heads), hidden_dims))
+        self.property_prompts = nn.Parameter(torch.ones(len(self.property_heads), hidden_dims))
+        print(self.affinity_prompts.shape)
+        print(self.property_prompts.shape)
         self.graph_pooling = graph_pooling
+        self.global_readout = TaskAwareReadout(in_features=hidden_dims, hidden_size=hidden_dims, out_features=hidden_dims, tasks=len(self.affinity_heads))
+        self.chain_readout = TaskAwareReadout(in_features=hidden_dims, hidden_size=hidden_dims, out_features=hidden_dims, tasks=len(self.property_heads))
         self.apply(reset)
 
     def forward(self, data: Batch, subset_idx: Optional[Tensor] = None) -> Tensor:
@@ -274,24 +289,21 @@ class BaseModel(nn.Module):
 
         if subset_idx is not None:
             y_pred = y_pred[subset_idx]
-        if 'lba' in data.type:
-            y_pred = self.downstream(y_pred)
         # print('Datatype:', data.type)
         if self.task == 'multi':
-            affinity_pred = self.affinity(y_pred)
-            property_pred = self.property(chain_pred)
+            affinity_pred = [affinity_head(y_pred) for affinity_head in self.affinity_heads]
+            property_pred = [property_head(chain_pred) for property_head in self.property_heads]
             return affinity_pred, property_pred
         elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
-            # print("Chains:", chain_pred.shape)
-            property_pred = self.property(chain_pred)
+            property_pred = [property_head(chain_pred) for property_head in self.property_heads]
             return property_pred
-        elif self.task == 'affinity':
-            affinity_pred = self.affinity(y_pred)
-            # print("Predictions:", y_pred.shape, affinity_pred.shape)
+        elif self.task in ['lba', 'ppi']:
+            affinity_pred = [affinity_head(y_pred) for affinity_head in self.affinity_heads]
             return affinity_pred
         else:
             raise RuntimeError
-            # print("Property:", affinity_pred.shape, property_pred.shape, function_label.shape)
+        
+        
         # # 设计了一个简易的辅助任务
         # if self.model_type == "egnn_edge":
         #     e_external = e[external_flag==1]

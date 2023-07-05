@@ -1,11 +1,11 @@
-# This is the config file for GearNet without Edge layers and Checkpoints.
+# This is the config file for EGNN.
 
 # Lightning Model Settings
 batch_size: 32
 sdim: 100
 vdim: 16
 depth: 3
-model_type: gearnet
+model_type: egnn
 num_radial: 32
 learning_rate: 1.0e-4
 batch_accum_grad: 1
@@ -18,9 +18,9 @@ no_feat_attn: False
 
 #Dataset Settings
 drop_last: False
-run_name: gearnet
+run_name: egnn
 train_task: multi
-train_split: train
+train_split: train_all
 val_split: val
 test_split: test
 alpha_only: True
@@ -29,10 +29,10 @@ num_workers: 4
 
 # Trainer Settings
 device: 
-  - 0
+  - 3
 nruns: 3
 wandb: True
-save_dir: gearnet
+save_dir: egnn
 gradient_clip_val: 10
 load_ckpt: null
 seed: 817

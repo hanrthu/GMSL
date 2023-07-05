@@ -113,7 +113,7 @@ class CustomMultiTaskDataset(Dataset):
             print("Complexes Before Task Selection:", self.len())
             self.choose_task_items()
             print("Dataset size:", self.len())
-            if self.gearnet:
+            if self.alpha_only:
                 print("Only retaining Alpha Carbon atoms for the atom_df")
                 self.retain_alpha_carbon()
         else:
@@ -741,8 +741,10 @@ class GNNTransformMultiTask(object):
                     print("Error, you shouldn't come here!")
             else:
                 pf_ids.append(-1)
-
-        num_classes = 538 + 490 + 1944 + 321
+        # ec, mf, bp, cc
+        # num_classes = 538 + 490 + 1944 + 321
+        num_classes = [538, 490, 1944, 321]
+        total_classes = 538 + 490 + 1944 + 321
         # 找个办法把chain和Uniprot对应起来，然后就可以查了
         if self.gearnet:
             graph = hetero_graph_transform(
@@ -756,54 +758,49 @@ class GNNTransformMultiTask(object):
         ppi = labels['ppi']
         ec = labels['ec']
         go = labels['go']
+        graph.affinities = torch.FloatTensor([lba, ppi]).unsqueeze(0)
         if lba != -1:
-            affinity = lba
-            graph.affinity_mask = torch.ones(1)
-            graph.y = torch.FloatTensor([affinity])
+            graph.affinity_mask = torch.tensor([1, 0]).unsqueeze(0)
         elif ppi != -1:
-            affinity = ppi
-            graph.affinity_mask = torch.ones(1)
-            graph.y = torch.FloatTensor([affinity])
+            graph.affinity_mask = torch.tensor([0, 1]).unsqueeze(0)
         else:
-            graph.y = torch.FloatTensor([0])
-            graph.affinity_mask = torch.zeros(1)
+            graph.affinity_mask = torch.tensor([0, 0]).unsqueeze(0)
 
-        # graph.y = torch.zeros(self.num_classes).scatter_(0,torch.tensor(labels),1)
         graph.functions = []
         graph.valid_masks = []
         for i, pf_id in enumerate(pf_ids):
             if pf_id == -1:
-                valid_mask = torch.zeros(num_classes)
-                prop = torch.zeros(num_classes)
+                valid_mask = torch.zeros(len(num_classes))
+                prop = torch.zeros(total_classes)
                 graph.functions.append(prop)
                 graph.valid_masks.append(valid_mask)
                 continue
-            valid_mask = torch.ones(num_classes)
+            valid_mask = torch.ones(len(num_classes))
             annotations = []
             ec_annot = ec[pf_id]
             go_annot = go[pf_id]
             if ec_annot == -1:
-                valid_mask[:538] = 0
+                valid_mask[0] = 0
             else:
                 annotations = annotations + ec_annot
             if go_annot == -1:
-                valid_mask[538:] = 0
+                valid_mask[1:] = 0
             else:
                 mf_annot = go_annot['molecular_functions'] 
                 mf_annot = [j + 538 for j in mf_annot]
                 if len(mf_annot) == 0:
-                    valid_mask[538: 538+490] = 0
+                    valid_mask[1] = 0
                 bp_annot = go_annot['biological_process']
                 bp_annot = [j + 538 + 490 for j in bp_annot]
                 if len(bp_annot) == 0:
-                    valid_mask[538+490: 538+490+1944] = 0
+                    valid_mask[2] = 0
                 cc_annot = go_annot['cellular_component']
                 cc_annot = [j + 538 + 490 + 1944 for j in cc_annot]
                 if len(cc_annot) == 0:
-                    valid_mask[538+490+1944:] = 0
+                    valid_mask[3] = 0
                 annotations = annotations + mf_annot + bp_annot + cc_annot
                 
-            prop = torch.zeros(num_classes).scatter_(0,torch.tensor(annotations),1)
+            prop = torch.zeros(total_classes).scatter_(0,torch.tensor(annotations),1)
             graph.functions.append(prop)
             graph.valid_masks.append(valid_mask)
         try:
