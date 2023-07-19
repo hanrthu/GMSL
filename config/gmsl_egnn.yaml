@@ -12,6 +12,7 @@ batch_accum_grad: 1
 weight_decay: 0
 max_epochs: 50
 enhanced: False
+readout: weighted_feature
 # 这些都是EQGAT需要的参数，之后优化掉
 cross_ablate: False
 no_feat_attn: False
@@ -23,13 +24,13 @@ train_task: multi
 train_split: train_all
 val_split: val
 test_split: test
-alpha_only: True
+alpha_only: False
 offset_strategy: 1
 num_workers: 4
 
 # Trainer Settings
 device: 
-  - 3
+  - 0
 nruns: 3
 wandb: True
 save_dir: egnn

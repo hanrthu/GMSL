@@ -36,7 +36,8 @@ class BaseModel(nn.Module):
         cross_ablate: bool = False,
         no_feat_attn: bool = False,
         enhanced: bool = True,
-        task = 'multitask'
+        task = 'multitask',
+        readout = 'vallina'
     ):
         if not model_type.lower() in ["painn", "eqgat", "schnet", "egnn", "egnn_edge", "gearnet"]:
             print("Wrong select model type")
@@ -207,13 +208,21 @@ class BaseModel(nn.Module):
                 nn.Dropout(dropout),
                 DenseLayer(sdim, 1, bias=True)
             )
-        self.affinity_prompts = nn.Parameter(torch.ones(len(self.affinity_heads), hidden_dims))
-        self.property_prompts = nn.Parameter(torch.ones(len(self.property_heads), hidden_dims))
-        print(self.affinity_prompts.shape)
-        print(self.property_prompts.shape)
+        self.readout = readout
+        print("Readout Strategy:", readout)
+        if readout == 'task_aware_attention':
+            self.affinity_prompts = nn.Parameter(torch.ones(len(self.affinity_heads), 1, sdim))
+            self.property_prompts = nn.Parameter(torch.ones(len(self.property_heads), 1, sdim))
+            # print(self.affinity_prompts.shape)
+            # print(self.property_prompts.shape)
+        elif readout == 'weighted_feature':
+            self.affinity_weights = nn.Parameter(torch.ones(len(self.affinity_heads), 1, sdim))
+            self.property_weights = nn.Parameter(torch.ones(len(self.property_heads), 1, sdim))
+            nn.init.kaiming_normal_(self.affinity_weights)
+            nn.init.kaiming_normal_(self.property_weights)
         self.graph_pooling = graph_pooling
-        self.global_readout = TaskAwareReadout(in_features=hidden_dims, hidden_size=hidden_dims, out_features=hidden_dims, tasks=len(self.affinity_heads))
-        self.chain_readout = TaskAwareReadout(in_features=hidden_dims, hidden_size=hidden_dims, out_features=hidden_dims, tasks=len(self.property_heads))
+        self.global_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.affinity_heads))
+        self.chain_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.property_heads))
         self.apply(reset)
 
     def forward(self, data: Batch, subset_idx: Optional[Tensor] = None) -> Tensor:
@@ -273,9 +282,30 @@ class BaseModel(nn.Module):
             s = self.post_lin(s)
 
         if self.graph_level:
-            y_pred = scatter(s, index=batch, dim=0, reduce=self.graph_pooling)
-            # 将链从1编号改为从0编号
-            chain_pred = scatter(s[(lig_flag!=0).squeeze(), :], index=(chains-1).squeeze(), dim=0, reduce=self.graph_pooling)
+            if self.readout == 'vallina':
+                y_pred = scatter(s, index=batch, dim=0, reduce=self.graph_pooling)
+                # 将链从1编号改为从0编号
+                chain_pred = scatter(s[(lig_flag!=0).squeeze(), :], index=(chains-1).squeeze(), dim=0, reduce=self.graph_pooling)
+            elif self.readout == 'weighted_feature':
+                # print("Shape:", self.task_weights.shape, s.shape)
+                y_pred = scatter(s * self.affinity_weights, index=batch, dim=1, reduce=self.graph_pooling)
+                chain_pred = scatter(s[(lig_flag!=0).squeeze(), :] * self.property_weights, index=(chains-1).squeeze(), dim=1, reduce=self.graph_pooling)
+                # print("After", y_pred.shape, chain_pred.shape)
+                if self.task == 'multi':
+                    affinity_pred = [affinity_head(y_pred[i].squeeze()) for i, affinity_head in enumerate(self.affinity_heads)]
+                    property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
+                    return affinity_pred, property_pred
+                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
+                    property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
+                    return property_pred
+                elif self.task in ['lba', 'ppi']:
+                    affinity_pred = [affinity_head(y_pred[i]) for i, affinity_head in enumerate(self.affinity_heads)]
+                    return affinity_pred
+                else:
+                    raise RuntimeError
+            elif self.readout == 'taskaware_attention':
+                y_pred = None
+                chain_pred = None
             if self.model_type == "egnn_edge":
                 edge_batch = batch[edge_index[0]]
                 # e_external = e[external_flag==1]

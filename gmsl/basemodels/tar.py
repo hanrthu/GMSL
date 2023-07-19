@@ -61,7 +61,7 @@ class TaskAwareReadout(nn.Module):
         
     def forward(self, task_prompt, input):
         # Following the original Transformer structure, modified the attention mask
-        # Prompt shape (Batchsize, task_num, hidden_feature)
+        # Prompt shape (1, task_num, hidden_feature)
         # Input shape (Batchsize, node_num, hidden_feature)
         query_full = self.query(task_prompt)
         key_full = self.key(input)

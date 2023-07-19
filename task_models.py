@@ -25,7 +25,8 @@ class MultiTaskModel(pl.LightningModule):
         aggr: str = "mean",
         enhanced: bool = True,
         offset_strategy: int = 0,
-        task = 'multi'
+        task = 'multi',
+        readout = 'vallina'
     ):
         if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet"]:
             print("Wrong select model type")
@@ -86,8 +87,9 @@ class MultiTaskModel(pl.LightningModule):
                                    aggr=aggr,
                                    cross_ablate=args.cross_ablate,
                                    no_feat_attn=args.no_feat_attn,
-                                   task = task
-                                #    protein_function_class_dims = class_dims
+                                   task = task,
+                                   readout=readout
+                                # protein_function_class_dims = class_dims
                                    )
         else:
             self.model = SEGNNModel(num_elements=num_elements,

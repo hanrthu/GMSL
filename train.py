@@ -330,6 +330,7 @@ if __name__ == "__main__":
             enhanced=args.enhanced,
             offset_strategy = args.offset_strategy,
             task=args.train_task,
+            readout=args.readout
         )
         print(
             f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
@@ -418,6 +419,7 @@ if __name__ == "__main__":
             enhanced=args.enhanced,
             offset_strategy = args.offset_strategy,
             task=args.train_task,
+            readout=args.readout
         )
         # 根据不同任务设置选择最优模型的方法
         monitor, mode = choose_monitor(args.train_task)

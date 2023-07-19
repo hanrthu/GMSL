@@ -1,18 +1,39 @@
-## Geometric Multitask Semisupervised Learning for Protein Representation
+# Geometric Multitask Semisupervised Learning for Protein Representation
 
 This is the official repository for Geometric Multitask Semisupervised Learning for Protein Representation(GMSL)
 
-# EGNN 
-CUDA_VISIBLE_DEVICES=3 python train.py --sdim 100 --vdim 16 --depth 3 --nruns 3 --save_dir base_egnn_edge --batch_size 64 --run_name lba_egnn_edge_bs64_withd_ywithe_ep50_double_edge --max_epochs 50 --offset_strategy 1 --super_node --model_type egnn_edge --wandb
+## Overview
+This repository contains the scripts of our architecture, and here is the way to run them.
 
-CUDA_VISIBLE_DEVICES=0 python train.py --nruns 1 --sdim 100 --vdim 16 --depth 3 --save_dir base_eqgat --batch_size 64 --super_node --wandb --run_name lba_eqgat_pdb16_supernode_bs64_ep50 --offset_strategy 1 --max_epochs 300 --wandb
+```
+git clone git@github.com:hanrthu/GMSL.git
+cd GMSL
+```
 
-# Multitask
-CUDA_VISIBLE_DEVICES=3 python train.py --sdim 100 --vdim 16 --depth 3 --nruns 3 --save_dir base_egnn_edge --batch_size 32 --run_name multitask_bs32_spnode --max_epochs 50 --offset_strategy 1 --super_node --model_type egnn --train_task multi --train_split train_all --val_split val --test_split test
+GMSL/ contains the implementation of the Geometric Multitask Semisupervised Learning model with all required submodules. Additionally, we provide implementations of other recent 3D Graph Neural Networks(copied from repository eqgat).
 
-# EC Only
-CUDA_VISIBLE_DEVICES=3 python train.py --sdim 100 --vdim 16 --depth 3 --nruns 3 --save_dir base_egnn_edge --batch_size 32 --run_name multitask_bs32_spnode --max_epochs 50 --offset_strategy 1 --super_node --model_type egnn --train_task ec --train_split train_ec --val_split val_ec --test_split test_ec --device 0
+## Installation 
+You may install the dependencies via conda. Generally, GMSL works with Python 3.9.12 and PyTorch version >= 2.0.0
+```
+conda env create -f environment.yaml 
+conda activate gmsl
+pip install -e .
+```
+## Reproduction
+### Dataset 
+You can download the pocessed data from the Tsinghua Cloud:[Multitask.tar.gz](https://cloud.tsinghua.edu.cn/f/bb33cdeaf780472cb8ad/) (~1.5GB). Place downloaded MultiTask.tar.gz into the datasets/ director and extact the files.
+
+You can also download the orignal data, unzip and place them into the datasets/ folder, and process them with preprocess_multi_task_dataet.py to generate the data yourself.(This will be uploaded later)
+
+### Training from scratch
+You can use the training script to 
+
+```
+python -W ignore train.py --config ./config/gmsl_gearnet_train_all.yaml
+```
+
+We provide the hyperparameters for each setting in configuration files. All the configuration files can be found in config/*.yaml.
 
 
-# Gearnet
-CUDA_VISIBLE_DEVICES=3 python -W ignore train.py --sdim 100 --vdim 16 --depth 3 --nruns 3 --save_dir gearnet --batch_size 32 --run_name multitask_bs32_gearnet --max_epochs 50 --offset_strategy 1 --model_type gearnet --train_task ec --train_split train_ec --val_split val_ec --test_split test_ec --device 0
+### Test
+Don't worry, the test script is just on the way~
