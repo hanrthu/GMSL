@@ -21,12 +21,24 @@ pip install -e .
 ```
 ## Reproduction
 ### Dataset 
-You can download the pocessed data from the Tsinghua Cloud:[Multitask.tar.gz](https://cloud.tsinghua.edu.cn/f/bb33cdeaf780472cb8ad/) (~1.5GB). Place downloaded MultiTask.tar.gz into the datasets/ director and extact the files.
+You can download the pocessed data from the Tsinghua cloud disk:[Multitask.tar.gz](https://cloud.tsinghua.edu.cn/f/bb33cdeaf780472cb8ad/) (~1.5GB). Place downloaded file into the datasets/ folder and extact the files.
 
-You can also download the orignal data, unzip and place them into the datasets/ folder, and process them with preprocess_multi_task_dataet.py to generate the data yourself.(This will be uploaded later)
+The number of samples of the original dataset is shown below:
+
+| Dataset | Protein-Ligand | Protein-Protein | EnzymeCommission | GeneOntology |
+| :---: | :---: | :---: | :---: | :---: |
+| Size | 5208 | 2662 | 18810 | 34944|
+
+The number of processed multi task dataset is shown below (Train_full set contains all the samples with partial labels.):
+
+| Train_full | Val | Test |
+| :---: | :---: | :---: |
+| 39912 | 531 | 531 |
+
+You can also download the orignal data, exctract it and place them into the datasets/ folder, and process them with preprocess_multi_task_dataet.py to generate the Multitask data yourself.(The original datasets will be uploaded later)
 
 ### Training from scratch
-You can use the training script to 
+You can use the training script to train a multitask model.
 
 ```
 python -W ignore train.py --config ./config/gmsl_gearnet_train_all.yaml
