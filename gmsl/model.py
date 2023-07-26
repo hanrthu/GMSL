@@ -213,6 +213,8 @@ class BaseModel(nn.Module):
         if readout == 'task_aware_attention':
             self.affinity_prompts = nn.Parameter(torch.ones(len(self.affinity_heads), 1, sdim))
             self.property_prompts = nn.Parameter(torch.ones(len(self.property_heads), 1, sdim))
+            self.global_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.affinity_heads))
+            self.chain_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.property_heads))
             # print(self.affinity_prompts.shape)
             # print(self.property_prompts.shape)
         elif readout == 'weighted_feature':
@@ -221,8 +223,6 @@ class BaseModel(nn.Module):
             nn.init.kaiming_normal_(self.affinity_weights)
             nn.init.kaiming_normal_(self.property_weights)
         self.graph_pooling = graph_pooling
-        self.global_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.affinity_heads))
-        self.chain_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.property_heads))
         self.apply(reset)
 
     def forward(self, data: Batch, subset_idx: Optional[Tensor] = None) -> Tensor:
@@ -303,6 +303,7 @@ class BaseModel(nn.Module):
                     return affinity_pred
                 else:
                     raise RuntimeError
+            # TODO: Implement task aware attention 
             elif self.readout == 'taskaware_attention':
                 y_pred = None
                 chain_pred = None

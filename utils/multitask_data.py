@@ -42,7 +42,7 @@ class CustomMultiTaskDataset(Dataset):
         with open(label_dir, 'r') as f:
             self.labels = json.load(f)
         self.remove_hoh = remove_hoh
-        self.remove_hydrogen = remove_hydrogen
+        self.remove_hydrogen = remove_hydrogen # 移除氢的
         self.cutoff = cutoff
         self.gearnet = gearnet
         self.alpha_only = alpha_only

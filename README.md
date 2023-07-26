@@ -21,7 +21,7 @@ pip install -e .
 ```
 ## Reproduction
 ### Dataset 
-You can download the pocessed data from the Tsinghua cloud disk:[Multitask.tar.gz](https://cloud.tsinghua.edu.cn/f/bb33cdeaf780472cb8ad/) (~1.5GB). Place downloaded file into the datasets/ folder and extact the files.
+You can download the pocessed data from the Tsinghua cloud disk:[Multitask.tar.gz](https://cloud.tsinghua.edu.cn/f/bb33cdeaf780472cb8ad/) (~1.5GB) and the label: [uniformed_labels.json](https://cloud.tsinghua.edu.cn/f/57628aaf86044fa7bc38/)(~11MB). Place the downloaded files into the datasets/ folder and extact them.
 
 The number of samples of the original dataset is shown below:
 

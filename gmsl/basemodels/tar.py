@@ -28,6 +28,7 @@ class TaskAwareReadout(nn.Module):
         tasks = 6,
         weight_init: Callable = kaiming_uniform_,
         bias_init: Callable = zeros_,):
+        
         self.weight_init = weight_init
         self.bias_init = bias_init
         super(TaskAwareReadout, self).__init__()
