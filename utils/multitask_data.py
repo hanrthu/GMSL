@@ -51,10 +51,6 @@ class CustomMultiTaskDataset(Dataset):
         self.go_root = './datasets/GeneOntology/all'
         self.lba_root = './datasets/PDBbind/refined-set'
         self.pp_root = './datasets/PDBbind/PP'
-        self.ec_files = os.listdir(self.ec_root)
-        self.go_files = os.listdir(self.go_root)
-        self.lba_files = os.listdir(self.lba_root)
-        self.pp_files = os.listdir(self.pp_root)
         with open(file_dir, 'r') as f:
             self.files = f.readlines()
             self.files = [i.strip() for i in self.files]
@@ -70,6 +66,10 @@ class CustomMultiTaskDataset(Dataset):
         self.task = task
         self.process_complexes()
     def find_structure(self, item):
+        self.ec_files = os.listdir(self.ec_root)
+        self.go_files = os.listdir(self.go_root)
+        self.lba_files = os.listdir(self.lba_root)
+        self.pp_files = os.listdir(self.pp_root)
         if '-' in item:
             if item+'.pdb' in self.ec_files:
                 return os.path.join(self.ec_root, item+'.pdb'), -1
