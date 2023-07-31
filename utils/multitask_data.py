@@ -276,7 +276,7 @@ class CustomMultiTaskDataset(Dataset):
                 info_dict = json.load(f)
             new_complexes = []
             for item in self.processed_complexes:
-                if item['complex_id'] in info_dict or item['complex_id'] in extra_info:
+                if item['complex_id'] in info_dict or item['complex_id'] in extra_info: #.keys()?
                     labels = item['labels']
                     annot_number = len(labels['uniprots'])
                     for j in range(annot_number):

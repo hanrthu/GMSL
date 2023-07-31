@@ -121,14 +121,21 @@ if __name__ == '__main__':
         print("Parsing PDBBind from PDBbank...")
         parse_info_PDBBind()
         print("Done!")
+    else:
+        print("PDBBind info already exists, skip parsing...")
     if not os.path.exists('./output_info/enzyme_commission_uniprots.json'):
         print("Parsing EnzymeCommission from PDBbank...")
         parse_info_EnzymeCommission()
         print("Done!")
+    else:
+        print("EC info already exists, skip parsing...")
     if not os.path.exists('./output_info/gene_ontology_uniprots.json'):
         print("Parsing GeneOntology from PDBbank...")
         parse_info_GeneOntology()
         print("Done!")
+    else:
+        print("GO info already exists, skip parsing...")
+        
     pl_list = gen_info_list('./output_info/protein_ligand_uniprots.json')
     pp_list = gen_info_list('./output_info/protein_protein_uniprots.json')
     ec_list = gen_info_list('./output_info/enzyme_commission_uniprots.json')
@@ -144,31 +151,18 @@ if __name__ == '__main__':
     intersection_ec_ge = list(set(ec_list) & set(ge_list))
     intersection_pl_pp = list(set(pl_list) & set(pp_list))
     intersection_pl_pp_ec = list(set(pl_list) & set(pp_list) & set(ec_list))
-    intersection_pl_pp_go = list(set(pl_list) & set(pp_list) & set(ge_list))
+    intersection_pl_pp_ge = list(set(pl_list) & set(pp_list) & set(ge_list))
+    intersection_pl_pp_ge_ec = list(set(pl_list) & set(pp_list) & set(ec_list) & set(ge_list))
     # print("Size of pl set:", len(set(pl_list)))
     # print("Size of pp set:", len(set(pp_list)))
     # intersection = list(set(pl_list) & set(pp_list))
-    print("Number of proteins in common(pl&ec):", len(intersection_pl_ec))
-    print("Number of proteins in common(pp&ec):", len(intersection_pp_ec))
-    print("Number of proteins in common(pl&ge):", len(intersection_pl_ge))
-    print("Number of proteins in common(pp&ge):", len(intersection_pp_ge))
-    print("Number of proteins in common(ec&ge):", len(intersection_ec_ge))
+    print("Calculating shared PDB ids of these datasets...")
+    print("Number of proteins in common(pl&EC):", len(intersection_pl_ec))
+    print("Number of proteins in common(pp&EC):", len(intersection_pp_ec))
+    print("Number of proteins in common(pl&GO):", len(intersection_pl_ge))
+    print("Number of proteins in common(pp&GO):", len(intersection_pp_ge))
+    print("Number of proteins in common(EC&GO):", len(intersection_ec_ge))
     print("Number of proteins in common(pl&pp):", len(intersection_pl_pp))
-    print("Number of proteins in common(pl&pp&ec):", len(intersection_pl_pp_ec))
-    print("Number of proteins in common(pl&pp&go):", len(intersection_pl_pp_go))
-# pdbs = ['1a1e', '1a4k']
-# for i in range(len(pdbs)):
-#     print("Number:", i)
-#     time.sleep(random.uniform(1,3))
-#     url = 'http://www.rcsb.org/structure/'+str(pdbs[i])
-#     e = requests.get(url)
-#     # print(e.text)
-#     soup = BeautifulSoup(e.text, 'html.parser')
-#     # soup.find_all()
-#     title = soup.head.title
-#     uniprots = soup.find_all('div', class_='col-lg-3 col-md-3 text-right')
-#     for uniprot in uniprots:
-#         id = uniprot.a.text
-#         print(uniprot.a.text)
-#     print(title)
-#     print(uniprots)
+    print("Number of proteins in common(pl&pp&EC):", len(intersection_pl_pp_ec))
+    print("Number of proteins in common(pl&pp&GO):", len(intersection_pl_pp_ge))
+    print("Number of proteins in common(pl&pp&GO&EC):", len(intersection_pl_pp_ge_ec))
