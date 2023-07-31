@@ -35,7 +35,7 @@ The number of processed multi task dataset is shown below (Train_full set contai
 | :---: | :---: | :---: |
 | 39912 | 531 | 531 |
 
-You can also download the orignal data, exctract it and place them into the datasets/ folder, and process them with preprocess_multi_task_dataet.py to generate the Multitask data yourself.(The original datasets will be uploaded later)
+You can also download the orignal data, exctract it and place them into the datasets/ folder, and process them with preprocess_multi_task_dataet.py to generate the Multitask data yourself. Please check [here](https://github.com/hanrthu/GMSL/blob/master/docs/Process_dataset.md) for documentation of preparing original data to generate multitask dataset.
 
 ### Training from scratch
 You can use the training script to train a multitask model.
