@@ -43,10 +43,11 @@ if not osp.exists(MODEL_DIR):
 # PPI添加方案2：在训练时，先训完一个任务的所有batch，再训练另一个任务的batch. Done
 
 class CustomBatchSampler(Sampler[List[int]]):
+    
     def __init__(self, batch_size_main: int = 64, batch_size_aux: int = 4, data_source = None, sample_strategy: int = 0, drop_last: bool = False) -> None:
         """
             sample_strategy: 0 means sampling main task first then sample the aux task.
-                             1 means sampling random batches from eicther the main task or the aux task.
+                             1 means sampling random batches from either the main task or the aux task.
         """
         super().__init__(data_source)
         self.data_source = data_source

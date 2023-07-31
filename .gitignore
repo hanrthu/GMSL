@@ -16,3 +16,5 @@ wandb/*
 runs/*
 models/*
 lightning_logs/*
+data/*
+datas_/*

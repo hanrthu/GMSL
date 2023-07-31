@@ -50,7 +50,7 @@ def gen_train_test_ids(complex_dict, ec_dict, go_dict):
 def gen_protein_property_uniprots(json_dir: str, single=True):
     with open(json_dir, 'r') as f:
         info_dict = json.load(f)
-    uniprot_dict = {}
+    uniprot_dict = {} # 蛋白质 dictionary
     # print(len(info_dict))
     info_dict_new = {}
     for k, v in info_dict.items():
@@ -189,7 +189,10 @@ def gen_ppi_labels():
     return res
 
 
-def gen_label(pdb_ids, ec_labels, go_labels, ppi_labels, lba_labels, ec_uniprot_dict, go_uniprot_dict, ec_info_dict, go_info_dict, pp_info_dict, pl_info_dict):
+def gen_label(pdb_ids, 
+            ec_labels, go_labels, ppi_labels, lba_labels, 
+            ec_uniprot_dict, go_uniprot_dict, 
+            ec_info_dict, go_info_dict, pp_info_dict, pl_info_dict):
     uniform_labels = {}
     for pdb_id in pdb_ids:
         if '-' in pdb_id:

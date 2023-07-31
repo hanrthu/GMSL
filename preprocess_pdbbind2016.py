@@ -1,5 +1,4 @@
-i
-mport os
+import os
 import re
 from tqdm import tqdm
 import numpy as np
