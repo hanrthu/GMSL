@@ -49,7 +49,7 @@ class MultiTaskModel(pl.LightningModule):
         self.max_epochs = max_epochs
         # 4 Multilabel Binary Classification Tasks
         # 之后可以做到Config中
-        self.property_info = {'ec': 538, 'mf': 490, 'bp': 1944, 'cc': 321}
+        self.property_info = {'ec': 640, 'mf': 490, 'bp': 1944, 'cc': 321}
         self.affinity_info = {'lba': 1, 'ppi': 1}
         # Weight of loss for each task
         # 之后可以变成可学习的版本
@@ -426,7 +426,8 @@ class AffinityModel(pl.LightningModule):
         aggr: str = "mean",
         enhanced: bool = True,
         offset_strategy: int = 0,
-        task = 'affinity'
+        task = 'ppi',
+        readout = 'vanilla',
     ):
         if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet"]:
             print("Wrong select model type")
@@ -478,7 +479,8 @@ class AffinityModel(pl.LightningModule):
                                    aggr=aggr,
                                    cross_ablate=args.cross_ablate,
                                    no_feat_attn=args.no_feat_attn,
-                                   task=task
+                                   task=task,
+                                   readout=readout,
                                 #    protein_function_class_dims = class_dims
                                    )
         else:
@@ -517,7 +519,8 @@ class AffinityModel(pl.LightningModule):
         return [optimizer], schedulers
             
     def forward(self, data: Batch) -> Tuple[Tensor, Tensor]:
-        y_affinity_pred = self.model(data=data).view(-1, )
+        # y_affinity_pred = self.model(data=data)[0].view(-1, )
+        y_affinity_pred = self.model(data=data)[0]
         # print("?")
         y_affinity_true = data.y.view(-1, )
         y_affinity_mask = data.affinity_mask.view(-1, )
@@ -732,7 +735,7 @@ class PropertyModel(pl.LightningModule):
         fs = []
         # print("Thres:", thresholds)
         if self.task == 'ec':
-            classes = [538]
+            classes = [640]
         elif self.task == 'go':
             classes = [490, 1944, 321]
         elif self.task == 'mf':
@@ -787,9 +790,22 @@ class PropertyModel(pl.LightningModule):
             return f_max[0].item(), f_max[1].item(), f_max[2].item(), f_max[3].item()
             
     def forward(self, data: Batch) -> Tuple[Tensor, Tensor]:
-        y_property_pred = self.model(data)
+        # #y_affinity_pred = self.model(data=data)[0].view(-1, )
+        # # print("?")
+        # y_affinity_true = data.y.view(-1, )
+        # y_affinity_mask = data.affinity_mask.view(-1, )
+        # # print("Affinity Shape:", y_affinity_mask.shape, y_affinity_true.shape, y_affinity_pred.shape)
+        # y_affinity_true = y_affinity_true[y_affinity_mask == 1]
+        # y_affinity_pred = y_affinity_pred[y_affinity_mask == 1]#
+        y_property_pred = self.model(data)[0]
         y_property_true = data.functions
         y_property_mask = data.valid_masks
+        # print("y_property_mask:", y_property_mask)
+        # print("y_property_mask shape:", y_property_mask.shape)
+        # print("y_property_pred:", y_property_pred)
+        # print('y_property_pred shape:', y_property_pred.shape)
+        # print("y_property_true:", y_property_true)
+        # print("y_property_true shape:", y_property_true.shape)
         y_property_true = y_property_true[(y_property_mask == 1).sum(dim=1) > 0, :]
         y_property_pred = y_property_pred[(y_property_mask == 1).sum(dim=1) > 0, :]
         return y_property_pred, y_property_true

@@ -33,7 +33,7 @@ class CustomMultiTaskDataset(Dataset):
     """
     The Custom MultiTask Dataset with uniform labels
     """
-    def __init__(self, root_dir: str = './datasets/MultiTask', label_dir: str = './datasets/MultiTask/uniformed_labels.json',
+    def __init__(self, root_dir: str = './datasets/EnzymeCommissionNew', label_dir: str = './datasets/EnzymeCommissionNew/uniformed_labels.json',
                 remove_hoh = True, remove_hydrogen = False, cutoff = 6, split : str = 'train', task = 'multi', gearnet = False, alpha_only=False):
         super(CustomMultiTaskDataset, self).__init__(root_dir)
         print("Initializing MultiTask Dataset...")
@@ -47,10 +47,12 @@ class CustomMultiTaskDataset(Dataset):
         self.gearnet = gearnet
         self.alpha_only = alpha_only
         file_dir = os.path.join(root_dir, split+'.txt')        
-        self.ec_root = './datasets/EnzymeCommission/all'
+        self.ec_root = './datasets/EnzymeCommissionNew/all'
         self.go_root = './datasets/GeneOntology/all'
         self.lba_root = './datasets/PDBbind/refined-set'
         self.pp_root = './datasets/PDBbind/PP'
+        self.protFunc_chain_root = './datasets/ProtFunc/chain'
+        self.protFunc_root = './datasets/ProtFunc/all'
         with open(file_dir, 'r') as f:
             self.files = f.readlines()
             self.files = [i.strip() for i in self.files]
@@ -58,7 +60,7 @@ class CustomMultiTaskDataset(Dataset):
             print("Wrong selected split. Have to choose between ['train', 'val', 'test', 'test_all']")
             print("Exiting code")
             exit()
-        if task not in ['affinity', 'ec', 'cc', 'mf', 'bp', 'multi', 'go']:
+        if task not in ['ppi','lba', 'ec', 'cc', 'mf', 'bp', 'multi', 'go']:
             print("Wrong selected task. Have to choose between ['affinity', 'ec', 'cc', 'mf', 'bp', 'multi', 'go']")
             print("Exiting code")
             exit()
@@ -70,11 +72,15 @@ class CustomMultiTaskDataset(Dataset):
         self.go_files = os.listdir(self.go_root)
         self.lba_files = os.listdir(self.lba_root)
         self.pp_files = os.listdir(self.pp_root)
+        # self.protFunc_files =[f.lower() for f in os.listdir(self.protFunc_root)]
+        # self.protFunc_chain_files = os.listdir(self.protFunc_chain_root)
         if '-' in item:
             if item+'.pdb' in self.ec_files:
                 return os.path.join(self.ec_root, item+'.pdb'), -1
             elif item+'.pdb' in self.go_files:
                 return os.path.join(self.go_root, item+'.pdb'), -1
+            # elif item+'.pdb' in self.protFunc_chain_files:
+            #     return os.path.join(self.protFunc_chain_root, item+'.pdb'), -1
         else:
             if item + '.ent.pdb' in self.pp_files:
                 return os.path.join(self.pp_root, item+'.ent.pdb'), -1
@@ -82,6 +88,8 @@ class CustomMultiTaskDataset(Dataset):
                 protein_dir = os.path.join(self.lba_root, item, item + "_protein.pdb")
                 ligand_dir = os.path.join(self.lba_root, item, item + '_ligand.mol2')
                 return protein_dir, ligand_dir
+            # elif item+'.pdb' in self.protFunc_files:
+            #     return os.path.join(self.protFunc_root, item+'.pdb'), -1
         print(item)
         return -1, -1
     def gen_df(self, coords, elements):
@@ -109,7 +117,7 @@ class CustomMultiTaskDataset(Dataset):
             print("Start loading cached Multitask files...")
             self.processed_complexes = pickle.load(open(self.cache_dir, 'rb'))
             print("Complexes Before Checking:", self.len())
-            self.check_dataset()
+            # self.check_dataset()
             print("Complexes Before Task Selection:", self.len())
             self.choose_task_items()
             print("Dataset size:", self.len())
@@ -121,6 +129,7 @@ class CustomMultiTaskDataset(Dataset):
             # count = 0
             for score_idx, item in enumerate(tqdm(self.files)):
                 structure_dir, ligand_dir = self.find_structure(item)
+                # print("cache_dir", self.cache_dir)
                 if ligand_dir != -1:
                     ligand = next(pybel.readfile('mol2', ligand_dir))
                     ligand_coords = [atom.coords for atom in ligand]
@@ -302,7 +311,7 @@ class CustomMultiTaskDataset(Dataset):
                     new_complexes.append(item)
             self.processed_complexes = new_complexes
             self.transform_func = GNNTransformGO(task=self.task, gearnet=self.gearnet)
-        elif self.task == 'affinity':
+        elif self.task in ['ppi','lba']:
             print("Using Affinity Dataset for training:")
             root_dir = './output_info/protein_protein_uniprots.json'
             with open(root_dir, 'r') as f:
@@ -623,7 +632,7 @@ class GNNTransformEC(object):
                     print("Error, you shouldn't come here!")
             else:
                 pf_ids.append(-1)
-        num_classes =538
+        num_classes =640
         if self.gearnet:
             graph = hetero_graph_transform(
                 atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']

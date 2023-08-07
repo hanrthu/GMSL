@@ -23,15 +23,15 @@ def gen_train_test_ids(complex_dict, ec_dict, go_dict):
     # print(complex_dict)
     all_list = []
     for k, v in complex_dict.items():
-        all_list.extend(v)
+        all_list.extend(v) # k is uniprot id v is pdb ids
     all_list = list(set(all_list))
     for k, v in complex_dict.items():
         # print(k, v)
         # 由于每个蛋白可能有多个Uniprot，可以根据某一个Uniprot不在的情况找出训练集的样本
         if k not in ec_dict or k not in go_dict:
-            train_list.extend(v)
+            train_list.extend(v) # train_list:哪些pdb_id中有uniprot缺少ec或者go标注
     #取反即可获得标注完整的数据集
-    test_list = [i for i in all_list if i not in train_list]
+    test_list = [i for i in all_list if i not in train_list] # test_list:哪些pdb_id中所有uniprot有完整的ec和go标注
     test_uniprots = []
     for k, v in complex_dict.items():
         for id in v:
@@ -84,7 +84,7 @@ def save_dataset_info(dir, complex_list):
         f.close()
 
 def gen_ec_labels():
-    root_dir = './datasets/EnzymeCommission/nrPDB-EC_annot.tsv'
+    root_dir = './datasets/EnzymeCommissionNew/nrPDB-EC_annot.tsv'
     with open(root_dir, 'r') as f:
         lines = f.readlines()
     ec_classes = lines[1].strip().split('\t')
@@ -230,9 +230,50 @@ def gen_label(pdb_ids, ec_labels, go_labels, ppi_labels, lba_labels, ec_uniprot_
             lba_label = -1
         uniform_labels[pdb_id] = {"uniprots":uniprots, "ec": single_ec_label, "go": single_go_label, "ppi": ppi_label, "lba": lba_label}
     return uniform_labels
-    # print(uniform_labels)
-        
-if __name__ == '__main__':
+def process_ppi_data():
+    print("Start processing original datasets to a ppi task dataset")
+    json_dir = './output_info/protein_protein_uniprots.json'
+    
+    # pp_uniprot_dict, pp_info_dict = gen_protein_property_uniprots(json_dir, single=False)
+    ppi_labels = gen_ppi_labels()
+    
+    pp_uniprot_dict, pp_info_dict = gen_protein_property_uniprots(json_dir, single=False)
+    print(pp_info_dict)
+    ppi_labels = {k:{"uniprots":pp_info_dict[k],"ec":[-1 for _ in range(len(pp_info_dict[k]))],"go":[-1 for _ in range(len(pp_info_dict[k]))],"ppi":v,"lba":-1} for k,v in ppi_labels.items() if k in pp_info_dict.keys()}
+    whole_set = [k for k in ppi_labels.keys()]
+    train_set = whole_set[:int(len(whole_set)*0.8)]
+    test_set = whole_set[int(len(whole_set)*0.8):int(len(whole_set)*0.9)]
+    valid_set = whole_set[int(len(whole_set)*0.9):]
+    os.makedirs('./datasets/ppi', exist_ok=True)
+    save_dataset_info('./datasets/ppi/train_all.txt', train_set)
+    save_dataset_info('./datasets/ppi/train.txt', train_set)
+    save_dataset_info('./datasets/ppi/val.txt', valid_set)
+    save_dataset_info('./datasets/ppi/test.txt', test_set)
+
+    with open('./datasets/ppi/uniformed_labels.json', 'w') as f:
+            json.dump(ppi_labels, f)
+def process_ec_data():
+    json_dir = "./output_info/enzyme_commission_new_uniprots.json"
+    ec_uniprot_dict, ec_info_dict = gen_protein_property_uniprots(json_dir)
+    print(ec_info_dict)
+    ec_labels = gen_ec_labels()
+    ec_labels = { k:{"uniprots":ec_info_dict[k],"ec":[v],"go":[-1],"ppi":-1,"lba":-1} for k,v in ec_labels.items() if k in ec_info_dict.keys()}
+    print("label:", len(ec_labels))
+    whole_set = [k for k in ec_labels.keys()]
+    train_set = whole_set[:int(len(whole_set)*0.8)]
+    test_set = whole_set[int(len(whole_set)*0.8):int(len(whole_set)*0.9)]
+    valid_set = whole_set[int(len(whole_set)*0.9):]
+    os.makedirs('./datasets/ec', exist_ok=True)
+    save_dataset_info('./datasets/EnzymeCommissionNew/train_all.txt', train_set)
+    save_dataset_info('./datasets/EnzymeCommissionNew/train.txt', train_set)
+    save_dataset_info('./datasets/EnzymeCommissionNew/val.txt', valid_set)
+    save_dataset_info('./datasets/EnzymeCommissionNew/test.txt', test_set)
+
+    with open('./datasets/EnzymeCommissionNew/uniformed_labels.json', 'w') as f:
+            json.dump(ec_labels, f)
+    
+    
+def process_multi_data():
     print("Start processing original datasets to a multitask dataset")
     root_dir = './output_info/'
     json_files = ['enzyme_commission_uniprots.json', 'gene_ontology_uniprots.json', 'protein_protein_uniprots.json', 'protein_ligand_uniprots.json']
@@ -268,15 +309,18 @@ if __name__ == '__main__':
     train_list_ec = [ec_uniprot_dict[i] for i in ec_uniprot_dict if i not in test_uniprots_all]
     train_list_go = [go_uniprot_dict[i] for i in go_uniprot_dict if i not in test_uniprots_all]
     print("Train List:", len(train_list_ec), len(train_list_go))
+    # train_list_pl:有pl label但是ec或者go缺点啥的pdb id训练集
+    # train_list_pp:有pp label但是ec或者go缺点啥的训练集
+    # train_list_ec:有ec但是没有go的训练集
+    # train_list_go:有go但是没有ec的训练集
     train_list_all = list(set(train_list_pl + train_list_pp + train_list_ec + train_list_go + full_train_list))
-
     # train/val/test.txt contains samples of full labels, while train_all.txt contains labals with partial labels and samples in train.txt.
     print("Process finished, saving information into ./dataset/MultiTask/")
     if os.path.exists('./datasets/MultiTask/train_all.txt') and os.path.exists('./datasets/MultiTask/tmp/train.txt'):
         print("File already exists, skip saving split information...")
     else:
         print("Saving split information...")
-        os.makedirs('./datasets/Multitask', exist_ok=True)
+        os.makedirs('./datasets/MultiTask', exist_ok=True)
         save_dataset_info('./datasets/MultiTask/train_all.txt', train_list_all)
         save_dataset_info('./datasets/MultiTask/train.txt', full_train_list)
         save_dataset_info('./datasets/MultiTask/val.txt', full_val_list)
@@ -290,3 +334,9 @@ if __name__ == '__main__':
         print('Generating uniformed labels...')
         with open('./datasets/MultiTask/uniformed_labels.json', 'w') as f:
             json.dump(uniformed_label_dict, f)
+        
+if __name__ == '__main__':
+    
+    # process_multi_data()
+    # process_ppi_data()
+    process_ec_data()

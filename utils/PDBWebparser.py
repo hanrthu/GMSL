@@ -7,7 +7,6 @@ import re
 import os
 from tqdm import tqdm
 import json
-
 def get_uniprots(url_root, pdbs, chain : bool = False):
     uniprot_dict = {}
     for i in tqdm(range(len(pdbs))):
@@ -86,13 +85,13 @@ def read_file(file_dir):
 
 def parse_info_EnzymeCommission():
     query_url = 'http://www.rcsb.org/structure/'
-    train_chains= read_file('./data/EnzymeCommission/nrPDB-EC_train.txt')
-    val_chains = read_file('./data/EnzymeCommission/nrPDB-EC_valid.txt')
-    test_chains = read_file('./data/EnzymeCommission/nrPDB-EC_test.txt')
+    train_chains= read_file('./datasets/EnzymeCommissionNew/nrPDB-EC_train.txt')
+    val_chains = read_file('./datasets/EnzymeCommissionNew/nrPDB-EC_valid.txt')
+    test_chains = read_file('./datasets/EnzymeCommissionNew/nrPDB-EC_test.txt')
     chains_total = list(set(train_chains + val_chains + test_chains))
     print("Total length of EnzymeCommission:", len(chains_total))
     enzymecommission_dict = get_uniprots(query_url, chains_total, chain=True)
-    with open('./output_info/enzyme_commission_uniprots.json', 'w') as f:
+    with open('./output_info/enzyme_commission_new_uniprots.json', 'w') as f:
         json.dump(enzymecommission_dict, f)
 
 def parse_info_GeneOntology():
@@ -117,52 +116,53 @@ def gen_info_list(json_dir):
     return info_list
 
 if __name__ == '__main__':
-    if not os.path.exists('./output_info/protein_ligand_uniprots.json') or not os.path.exists('./output_info/protein_protein_uniprots.json'):
-        print("Parsing PDBBind from PDBbank...")
-        parse_info_PDBBind()
-        print("Done!")
-    else:
-        print("PDBBind info already exists, skip parsing...")
-    if not os.path.exists('./output_info/enzyme_commission_uniprots.json'):
-        print("Parsing EnzymeCommission from PDBbank...")
-        parse_info_EnzymeCommission()
-        print("Done!")
-    else:
-        print("EC info already exists, skip parsing...")
-    if not os.path.exists('./output_info/gene_ontology_uniprots.json'):
-        print("Parsing GeneOntology from PDBbank...")
-        parse_info_GeneOntology()
-        print("Done!")
-    else:
-        print("GO info already exists, skip parsing...")
+    parse_info_EnzymeCommission()
+    # if not os.path.exists('./output_info/protein_ligand_uniprots.json') or not os.path.exists('./output_info/protein_protein_uniprots.json'):
+    #     print("Parsing PDBBind from PDBbank...")
+    #     parse_info_PDBBind()
+    #     print("Done!")
+    # else:
+    #     print("PDBBind info already exists, skip parsing...")
+    # if not os.path.exists('./output_info/enzyme_commission_uniprots.json'):
+    #     print("Parsing EnzymeCommission from PDBbank...")
+    #     parse_info_EnzymeCommission()
+    #     print("Done!")
+    # else:
+    #     print("EC info already exists, skip parsing...")
+    # if not os.path.exists('./output_info/gene_ontology_uniprots.json'):
+    #     print("Parsing GeneOntology from PDBbank...")
+    #     parse_info_GeneOntology()
+    #     print("Done!")
+    # else:
+    #     print("GO info already exists, skip parsing...")
         
-    pl_list = gen_info_list('./output_info/protein_ligand_uniprots.json')
-    pp_list = gen_info_list('./output_info/protein_protein_uniprots.json')
-    ec_list = gen_info_list('./output_info/enzyme_commission_uniprots.json')
-    ge_list = gen_info_list('./output_info/gene_ontology_uniprots.json')
-    print("Number of proteins in protein-ligand binding:", len(pl_list))
-    print("Number of proteins in enzyme_commision prediction:", len(ec_list))    
-    print("Number of proteins in protein-protein interaction:", len(pp_list))
-    print("Number of proteins in gene_ontology interaction:", len(ge_list))
-    intersection_pl_ec = list(set(pl_list) & set(ec_list))
-    intersection_pp_ec = list(set(pp_list) & set(ec_list))
-    intersection_pl_ge = list(set(pl_list) & set(ge_list))
-    intersection_pp_ge = list(set(pp_list) & set(ge_list))
-    intersection_ec_ge = list(set(ec_list) & set(ge_list))
-    intersection_pl_pp = list(set(pl_list) & set(pp_list))
-    intersection_pl_pp_ec = list(set(pl_list) & set(pp_list) & set(ec_list))
-    intersection_pl_pp_ge = list(set(pl_list) & set(pp_list) & set(ge_list))
-    intersection_pl_pp_ge_ec = list(set(pl_list) & set(pp_list) & set(ec_list) & set(ge_list))
-    # print("Size of pl set:", len(set(pl_list)))
-    # print("Size of pp set:", len(set(pp_list)))
-    # intersection = list(set(pl_list) & set(pp_list))
-    print("Calculating shared PDB ids of these datasets...")
-    print("Number of proteins in common(pl&EC):", len(intersection_pl_ec))
-    print("Number of proteins in common(pp&EC):", len(intersection_pp_ec))
-    print("Number of proteins in common(pl&GO):", len(intersection_pl_ge))
-    print("Number of proteins in common(pp&GO):", len(intersection_pp_ge))
-    print("Number of proteins in common(EC&GO):", len(intersection_ec_ge))
-    print("Number of proteins in common(pl&pp):", len(intersection_pl_pp))
-    print("Number of proteins in common(pl&pp&EC):", len(intersection_pl_pp_ec))
-    print("Number of proteins in common(pl&pp&GO):", len(intersection_pl_pp_ge))
-    print("Number of proteins in common(pl&pp&GO&EC):", len(intersection_pl_pp_ge_ec))
+    # pl_list = gen_info_list('./output_info/protein_ligand_uniprots.json')
+    # pp_list = gen_info_list('./output_info/protein_protein_uniprots.json')
+    # ec_list = gen_info_list('./output_info/enzyme_commission_uniprots.json')
+    # ge_list = gen_info_list('./output_info/gene_ontology_uniprots.json')
+    # print("Number of proteins in protein-ligand binding:", len(pl_list))
+    # print("Number of proteins in enzyme_commision prediction:", len(ec_list))    
+    # print("Number of proteins in protein-protein interaction:", len(pp_list))
+    # print("Number of proteins in gene_ontology interaction:", len(ge_list))
+    # intersection_pl_ec = list(set(pl_list) & set(ec_list))
+    # intersection_pp_ec = list(set(pp_list) & set(ec_list))
+    # intersection_pl_ge = list(set(pl_list) & set(ge_list))
+    # intersection_pp_ge = list(set(pp_list) & set(ge_list))
+    # intersection_ec_ge = list(set(ec_list) & set(ge_list))
+    # intersection_pl_pp = list(set(pl_list) & set(pp_list))
+    # intersection_pl_pp_ec = list(set(pl_list) & set(pp_list) & set(ec_list))
+    # intersection_pl_pp_ge = list(set(pl_list) & set(pp_list) & set(ge_list))
+    # intersection_pl_pp_ge_ec = list(set(pl_list) & set(pp_list) & set(ec_list) & set(ge_list))
+    # # print("Size of pl set:", len(set(pl_list)))
+    # # print("Size of pp set:", len(set(pp_list)))
+    # # intersection = list(set(pl_list) & set(pp_list))
+    # print("Calculating shared PDB ids of these datasets...")
+    # print("Number of proteins in common(pl&EC):", len(intersection_pl_ec))
+    # print("Number of proteins in common(pp&EC):", len(intersection_pp_ec))
+    # print("Number of proteins in common(pl&GO):", len(intersection_pl_ge))
+    # print("Number of proteins in common(pp&GO):", len(intersection_pp_ge))
+    # print("Number of proteins in common(EC&GO):", len(intersection_ec_ge))
+    # print("Number of proteins in common(pl&pp):", len(intersection_pl_pp))
+    # print("Number of proteins in common(pl&pp&EC):", len(intersection_pl_pp_ec))
+    # print("Number of proteins in common(pl&pp&GO):", len(intersection_pl_pp_ge))
+    # print("Number of proteins in common(pl&pp&GO&EC):", len(intersection_pl_pp_ge_ec))

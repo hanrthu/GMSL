@@ -134,7 +134,7 @@ class BaseModel(nn.Module):
             )
 
         self.use_norm = use_norm
-
+        print("self.task:",self.task)
         if self.model_type in ["schnet", "egnn", "gearnet"]:
             if use_norm:
                 self.post_norm = LayerNorm(dims=(sdim, None))
@@ -176,7 +176,7 @@ class BaseModel(nn.Module):
                 self.affinity_heads.append(lba)
                 self.affinity_heads.append(ppi)
         if self.task == 'ec':
-            class_nums = [538]
+            class_nums = [640]
         elif self.task == 'mf':
             class_nums = [490]
         elif self.task == 'bp':
@@ -186,7 +186,7 @@ class BaseModel(nn.Module):
         elif self.task == 'go':
             class_nums = [490, 1944, 321]
         elif self.task == 'multi':
-            class_nums = [538, 490, 1944, 321]
+            class_nums = [640, 490, 1944, 321]
         else:
             class_nums = []
         # print("Class Nums:", class_nums)
@@ -280,14 +280,24 @@ class BaseModel(nn.Module):
             if self.use_norm:
                 s, _ = self.post_norm(x=(s, None), batch=batch)
             s = self.post_lin(s)
-
+        # print("s:",s)
         if self.graph_level:
+            # print("Graph Level")
+            # print("self.readout:", self.readout)
             if self.readout == 'vallina':
+                # print("Vanilla")
+                # print("s:", s)
+                # print("s.shape:", s.shape)
+                # print("index:",batch)
+                # print("index.shape:", batch.shape)
                 y_pred = scatter(s, index=batch, dim=0, reduce=self.graph_pooling)
+                # print("y_pred:", y_pred)
+                # print("index:",batch)
+                # print("reduce:", self.graph_pooling)
                 # 将链从1编号改为从0编号
                 chain_pred = scatter(s[(lig_flag!=0).squeeze(), :], index=(chains-1).squeeze(), dim=0, reduce=self.graph_pooling)
             elif self.readout == 'weighted_feature':
-                # print("Shape:", self.task_weights.shape, s.shape)
+                print("Shape:", self.task_weights.shape, s.shape)
                 y_pred = scatter(s * self.affinity_weights, index=batch, dim=1, reduce=self.graph_pooling)
                 chain_pred = scatter(s[(lig_flag!=0).squeeze(), :] * self.property_weights, index=(chains-1).squeeze(), dim=1, reduce=self.graph_pooling)
                 # print("After", y_pred.shape, chain_pred.shape)
@@ -300,13 +310,17 @@ class BaseModel(nn.Module):
                     return property_pred
                 elif self.task in ['lba', 'ppi']:
                     affinity_pred = [affinity_head(y_pred[i]) for i, affinity_head in enumerate(self.affinity_heads)]
+                    print("affinity_pred:", affinity_pred)
                     return affinity_pred
                 else:
                     raise RuntimeError
             # TODO: Implement task aware attention 
             elif self.readout == 'taskaware_attention':
+                print("here")
                 y_pred = None
                 chain_pred = None
+            # else:
+            #     print("self.readout:",self.readout)
             if self.model_type == "egnn_edge":
                 edge_batch = batch[edge_index[0]]
                 # e_external = e[external_flag==1]
@@ -316,11 +330,14 @@ class BaseModel(nn.Module):
                 # print("E flags:", external_flag.shape)
                 y_pred = torch.cat([y_pred, e_pool], dim=-1)
         else:
+    
             y_pred = s
-
         if subset_idx is not None:
+            # print("subset_idx:", subset_idx)
             y_pred = y_pred[subset_idx]
+        # print("y_pred:", y_pred)
         # print('Datatype:', data.type)
+        # print("self.task:", self.task)
         if self.task == 'multi':
             affinity_pred = [affinity_head(y_pred) for affinity_head in self.affinity_heads]
             property_pred = [property_head(chain_pred) for property_head in self.property_heads]
@@ -330,6 +347,7 @@ class BaseModel(nn.Module):
             return property_pred
         elif self.task in ['lba', 'ppi']:
             affinity_pred = [affinity_head(y_pred) for affinity_head in self.affinity_heads]
+            # print("affinity_pred:", affinity_pred)
             return affinity_pred
         else:
             raise RuntimeError

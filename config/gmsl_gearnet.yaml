@@ -7,12 +7,12 @@ vdim: 16
 depth: 3
 model_type: gearnet
 num_radial: 32
-learning_rate: 1.0e-4
+learning_rate: 5.0e-5
 batch_accum_grad: 1
 weight_decay: 0
 max_epochs: 50
 enhanced: False
-readout: weighted_feature
+readout: vallina
 # 这些都是EQGAT需要的参数，之后优化掉
 cross_ablate: False
 no_feat_attn: False
@@ -20,7 +20,7 @@ no_feat_attn: False
 #Dataset Settings
 drop_last: False
 run_name: gearnet
-train_task: multi
+train_task: ec
 train_split: train
 val_split: val
 test_split: test
