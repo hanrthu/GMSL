@@ -394,7 +394,7 @@ class GNNTransformGO(object):
                     print("Error, you shouldn't come here!")
             else:
                 pf_ids.append(-1)
-                
+        print("pf_id",pf_ids)        
         if self.task == 'mf':
             num_classes = 490
         elif self.task == 'bp':
@@ -463,6 +463,7 @@ class GNNTransformGO(object):
                 annotations = mf_annot + bp_annot + cc_annot
                 
             prop = torch.zeros(num_classes).scatter_(0,torch.tensor(annotations),1)
+            print(prop)
             graph.functions.append(prop)
             graph.valid_masks.append(valid_mask)
         try:

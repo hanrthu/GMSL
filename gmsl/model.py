@@ -45,7 +45,6 @@ class BaseModel(nn.Module):
             exit()
 
         super(BaseModel, self).__init__()
-
         self.sdim = sdim
         self.vdim = vdim
         self.depth = depth

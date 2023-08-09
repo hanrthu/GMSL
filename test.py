@@ -1,19 +1,30 @@
-import torch 
-from torch import cuda 
+import os
+import json
 import time
- 
-x = torch.zeros([1,1024,1024,128*2], requires_grad=True, device='cuda:0') 
-print(x.dtype)
-print("1", cuda.memory_allocated()/1024**2)  
+import yaml
+import wandb
+import torch
+import random
+import pandas as pd
+import os.path as osp
 
-y = 5 * x 
-# y.retain_grad()
-print("2", cuda.memory_allocated()/1024**2)  
+from argparse import ArgumentParser
+from datetime import datetime
+from typing import Optional
 
+import pytorch_lightning as pl
+from pytorch_lightning.strategies.ddp import DDPStrategy
+from pytorch_lightning.loggers import WandbLogger
 
-torch.mean(y).backward()     
-print("3", cuda.memory_allocated()/1024**2)    
-print(cuda.memory_summary())
+from pytorch_lightning.callbacks import (
+    LearningRateMonitor,
+    ModelCheckpoint,
+    ModelSummary
+)
+from task_models import MultiTaskModel, PropertyModel, AffinityModel
+from torch_geometric.loader import DataLoader
 
-
-time.sleep(60)
+from utils.multitask_data import CustomMultiTaskDataset
+# from itertools import cycle
+from torch.utils.data import Sampler
+from typing import List

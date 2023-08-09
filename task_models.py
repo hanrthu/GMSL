@@ -517,7 +517,7 @@ class AffinityModel(pl.LightningModule):
         return [optimizer], schedulers
             
     def forward(self, data: Batch) -> Tuple[Tensor, Tensor]:
-        y_affinity_pred = self.model(data=data).view(-1, )
+        y_affinity_pred = self.model(data=data)[0].view(-1, )
         # print("?")
         y_affinity_true = data.y.view(-1, )
         y_affinity_mask = data.affinity_mask.view(-1, )

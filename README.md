@@ -13,12 +13,17 @@ cd GMSL
 GMSL/ contains the implementation of the Geometric Multitask Semisupervised Learning model with all required submodules. Additionally, we provide implementations of other recent 3D Graph Neural Networks(copied from repository eqgat).
 
 ## Installation 
-You may install the dependencies via conda. Generally, GMSL works with Python 3.9.12 and PyTorch version >= 2.0.0
+We recommend you to install the dependencies via the fast package management tool [mamba](https://mamba.readthedocs.io/en/latest/mamba-installation.html) (you can also replace the command 'mamba' with 'conda' to install them). Generally, GMSL works with Python 3.9.12 and PyTorch version >= 2.0.0
 ```
-conda env create -f environment.yaml 
-conda activate gmsl
-pip install -e .
+mamba env create -f environment.yaml 
+mamba activate gmsl
 ```
+
+After installing the packages, you may encounter the following error in e3nn:
+```
+TypeError: @e3nn.util.jit.compile_mode can only decorate classes derived from torch.nn.Module
+```
+You can simply change torch.nn.Module in jit.py into torch.nn.modules.module.Module to solve it. 
 ## Reproduction
 ### Dataset 
 You can download the pocessed data from the Tsinghua cloud disk:[Multitask.tar.gz](https://cloud.tsinghua.edu.cn/f/bb33cdeaf780472cb8ad/) (~1.5GB) and the label: [uniformed_labels.json](https://cloud.tsinghua.edu.cn/f/57628aaf86044fa7bc38/)(~11MB). Place the downloaded files into the datasets/ folder and extact them.
