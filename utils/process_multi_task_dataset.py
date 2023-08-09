@@ -1,4 +1,4 @@
-# This script is for processing the dataset to form a new multi-task dataset with a unform labeling code
+# This script is for processing the dataset to form a new multi-task dataset with a unified labeling code
 # Datasets PDBBind(Protein-Ligand, Protein-Protein), EnzymeCommission, GeneOntology
 import os
 import json

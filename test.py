@@ -17,7 +17,7 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import (
     LearningRateMonitor,
 )
-from task_models import MultiTaskModel, PropertyModel, AffinityModel
+from utils.task_models import MultiTaskModel, PropertyModel, AffinityModel
 from torch_geometric.loader import DataLoader
 
 from utils.multitask_data import CustomMultiTaskDataset
@@ -119,5 +119,5 @@ if __name__ == "__main__":
     print(f"Testing time: {time_diff}")
     # Output the testing result
     res = model.res
-    with open(os.path.join(output_dir, "res.json"), "w") as f:
+    with open(os.path.join(model_dir, "res.json"), "w") as f:
         json.dump(res, f)

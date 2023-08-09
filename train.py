@@ -22,7 +22,7 @@ from pytorch_lightning.callbacks import (
     ModelCheckpoint,
     ModelSummary
 )
-from task_models import MultiTaskModel, PropertyModel, AffinityModel
+from utils.task_models import MultiTaskModel, PropertyModel, AffinityModel
 from torch_geometric.loader import DataLoader
 
 from utils.multitask_data import CustomMultiTaskDataset

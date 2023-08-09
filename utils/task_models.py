@@ -406,7 +406,7 @@ class MultiTaskModel(pl.LightningModule):
         print("TEST:", test_res)
         self.test_step_outputs.clear()
         # return mse, mae
-
+        
 class AffinityModel(pl.LightningModule):
     def __init__(
         self,
@@ -614,10 +614,6 @@ class AffinityModel(pl.LightningModule):
         self.log("test_el1", mae, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
         return mse, mae
     
-
-
-
-
 class PropertyModel(pl.LightningModule):
     def __init__(
         self,
