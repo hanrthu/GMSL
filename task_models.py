@@ -9,13 +9,12 @@ from typing import Tuple
 class MultiTaskModel(pl.LightningModule):
     def __init__(
         self,
-        args,
         sdim: int = 128,
         vdim: int = 16,
         depth: int = 5,
         r_cutoff: float = 5.0,
         num_radial: int = 32,
-        model_type: str = "egnn",
+        model_type: str = "gearnet",
         learning_rate: float = 1e-4,
         weight_decay: float = 0.0,
         patience_scheduler: int = 10,
@@ -34,7 +33,7 @@ class MultiTaskModel(pl.LightningModule):
             exit()
 
         super(MultiTaskModel, self).__init__()
-        self.save_hyperparameters(args)
+        self.save_hyperparameters()
         print("Initializing MultiTask Model...")
         self.sdim = sdim
         self.vdim = vdim
@@ -73,6 +72,7 @@ class MultiTaskModel(pl.LightningModule):
             raise NotImplementedError
         # print("Num Elements:", num_elements)
         if model_type != "segnn":
+            # print("Args:", args)
             self.model = BaseModel(sdim=sdim,
                                    vdim=vdim,
                                    depth=depth,
@@ -85,8 +85,8 @@ class MultiTaskModel(pl.LightningModule):
                                    dropout=0.0,
                                    use_norm=use_norm,
                                    aggr=aggr,
-                                   cross_ablate=args.cross_ablate,
-                                   no_feat_attn=args.no_feat_attn,
+                                   cross_ablate=False,
+                                   no_feat_attn=False,
                                    task = task,
                                    readout=readout
                                 # protein_function_class_dims = class_dims
@@ -410,7 +410,6 @@ class MultiTaskModel(pl.LightningModule):
 class AffinityModel(pl.LightningModule):
     def __init__(
         self,
-        args,
         sdim: int = 128,
         vdim: int = 16,
         depth: int = 5,
@@ -435,7 +434,7 @@ class AffinityModel(pl.LightningModule):
 
         super(AffinityModel, self).__init__()
         print("Initializing Affinity Model...")
-        self.save_hyperparameters(args)
+        self.save_hyperparameters()
 
         self.sdim = sdim
         self.vdim = vdim
@@ -476,8 +475,8 @@ class AffinityModel(pl.LightningModule):
                                    dropout=0.0,
                                    use_norm=use_norm,
                                    aggr=aggr,
-                                   cross_ablate=args.cross_ablate,
-                                   no_feat_attn=args.no_feat_attn,
+                                   cross_ablate=False,
+                                   no_feat_attn=False,
                                    task=task
                                 #    protein_function_class_dims = class_dims
                                    )
@@ -622,13 +621,12 @@ class AffinityModel(pl.LightningModule):
 class PropertyModel(pl.LightningModule):
     def __init__(
         self,
-        args,
         sdim: int = 128,
         vdim: int = 16,
         depth: int = 5,
         r_cutoff: float = 5.0,
         num_radial: int = 32,
-        model_type: str = "eqgat",
+        model_type: str = "gearnet",
         learning_rate: float = 1e-4,
         weight_decay: float = 0.0,
         patience_scheduler: int = 10,
@@ -647,7 +645,7 @@ class PropertyModel(pl.LightningModule):
 
         super(PropertyModel, self).__init__()
         print("Initializing Property Model...")
-        self.save_hyperparameters(args)
+        self.save_hyperparameters()
 
         self.sdim = sdim
         self.vdim = vdim
@@ -687,8 +685,8 @@ class PropertyModel(pl.LightningModule):
                                    dropout=0.0,
                                    use_norm=use_norm,
                                    aggr=aggr,
-                                   cross_ablate=args.cross_ablate,
-                                   no_feat_attn=args.no_feat_attn,
+                                   cross_ablate=False,
+                                   no_feat_attn=False,
                                    task=task
                                 #    protein_function_class_dims = class_dims
                                    )

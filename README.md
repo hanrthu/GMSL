@@ -53,4 +53,7 @@ We provide the hyperparameters for each setting in configuration files. All the 
 
 
 ### Test
-Don't worry, the test script is just on the way~
+You can use the testing script to test the models. For example, to test a trained multitask model, you can provide the checkpoint files and hyperparameter files, and test them as follows:
+```
+python test.py --config ./config/gmsl_gearnet.yaml --model_path /PATH/TO/YOUR/MODEL --hyp_path /PATH/TO/HYPERPARAMETERS --test_name /TEST/NAME
+```

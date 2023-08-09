@@ -2,7 +2,7 @@
 
 # Lightning Model Settings
 batch_size: 32
-sdim: 100
+sdim: 128
 vdim: 16
 depth: 3
 model_type: egnn
@@ -32,7 +32,7 @@ num_workers: 4
 device: 
   - 0
 nruns: 3
-wandb: True
+wandb: False
 save_dir: egnn
 gradient_clip_val: 10
 load_ckpt: null

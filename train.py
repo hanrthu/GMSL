@@ -237,7 +237,7 @@ def choose_monitor(task):
 
 def get_argparse():
     parser = ArgumentParser(
-        description="Main training script for Equivariant GNNs on LBA Data."
+        description="Main training script for Equivariant GNNs on Multitask Data."
     )
     # Training Setting
     # parser.add_argument("--batch_size", type=int, default=16)
@@ -315,69 +315,66 @@ if __name__ == "__main__":
         wandb_logger = None
 
     if args.train_task == 'multi':
-        model = MultiTaskModel(
-            args=args,
-            sdim=args.sdim,
-            vdim=args.vdim,
-            depth=args.depth,
-            model_type=args.model_type,
-            learning_rate=args.learning_rate,
-            weight_decay=args.weight_decay,
-            r_cutoff=4.5,
-            num_radial=args.num_radial,
-            max_epochs=args.max_epochs,
-            factor_scheduler=0.75,
-            enhanced=args.enhanced,
-            offset_strategy = args.offset_strategy,
-            task=args.train_task,
-            readout=args.readout
-        )
-        print(
-            f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
-        )
+        # model = MultiTaskModel(
+        #     sdim=args.sdim,
+        #     vdim=args.vdim,
+        #     depth=args.depth,
+        #     model_type=args.model_type,
+        #     learning_rate=args.learning_rate,
+        #     weight_decay=args.weight_decay,
+        #     r_cutoff=4.5,
+        #     num_radial=args.num_radial,
+        #     max_epochs=args.max_epochs,
+        #     factor_scheduler=0.75,
+        #     enhanced=args.enhanced,
+        #     offset_strategy = args.offset_strategy,
+        #     task=args.train_task,
+        #     readout=args.readout
+        # )
+        # print(
+        #     f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
+        # )
         model_cls = MultiTaskModel
     elif args.train_task in ['ec', 'go', 'mf', 'bp', 'cc']:
-        model = PropertyModel(
-            args=args,
-            sdim=args.sdim,
-            vdim=args.vdim,
-            depth=args.depth,
-            model_type=args.model_type,
-            learning_rate=args.learning_rate,
-            weight_decay=args.weight_decay,
-            r_cutoff=4.5,
-            num_radial=args.num_radial,
-            max_epochs=args.max_epochs,
-            factor_scheduler=0.75,
-            enhanced=args.enhanced,
-            offset_strategy = args.offset_strategy,
-            task=args.train_task
-        )
+        # model = PropertyModel(
+        #     sdim=args.sdim,
+        #     vdim=args.vdim,
+        #     depth=args.depth,
+        #     model_type=args.model_type,
+        #     learning_rate=args.learning_rate,
+        #     weight_decay=args.weight_decay,
+        #     r_cutoff=4.5,
+        #     num_radial=args.num_radial,
+        #     max_epochs=args.max_epochs,
+        #     factor_scheduler=0.75,
+        #     enhanced=args.enhanced,
+        #     offset_strategy = args.offset_strategy,
+        #     task=args.train_task
+        # )
         model_cls = PropertyModel
-        print(
-            f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
-        )
+        # print(
+        #     f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
+        # )
     elif args.train_task == 'affinity':
-        model = AffinityModel(
-            args=args,
-            sdim=args.sdim,
-            vdim=args.vdim,
-            depth=args.depth,
-            model_type=args.model_type,
-            learning_rate=args.learning_rate,
-            weight_decay=args.weight_decay,
-            r_cutoff=4.5,
-            num_radial=args.num_radial,
-            max_epochs=args.max_epochs,
-            factor_scheduler=0.75,
-            enhanced=args.enhanced,
-            offset_strategy = args.offset_strategy,
-            task=args.train_task
-        )
+        # model = AffinityModel(
+        #     sdim=args.sdim,
+        #     vdim=args.vdim,
+        #     depth=args.depth,
+        #     model_type=args.model_type,
+        #     learning_rate=args.learning_rate,
+        #     weight_decay=args.weight_decay,
+        #     r_cutoff=4.5,
+        #     num_radial=args.num_radial,
+        #     max_epochs=args.max_epochs,
+        #     factor_scheduler=0.75,
+        #     enhanced=args.enhanced,
+        #     offset_strategy = args.offset_strategy,
+        #     task=args.train_task
+        # )
         model_cls = AffinityModel
-        print(
-            f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
-        )
+        # print(
+        #     f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
+        # )
         
     model_dir = osp.join(MODEL_DIR, args.save_dir)
     if not osp.exists(model_dir):
@@ -403,7 +400,6 @@ if __name__ == "__main__":
             # auxiliary=None
         )
         model = model_cls(
-            args=args,
             sdim=args.sdim,
             vdim=args.vdim,
             depth=args.depth,
@@ -420,6 +416,9 @@ if __name__ == "__main__":
             offset_strategy = args.offset_strategy,
             task=args.train_task,
             readout=args.readout
+        )
+        print(
+            f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
         )
         # 根据不同任务设置选择最优模型的方法
         monitor, mode = choose_monitor(args.train_task)
