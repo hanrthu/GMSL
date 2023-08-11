@@ -37,7 +37,7 @@ class BaseModel(nn.Module):
         no_feat_attn: bool = False,
         enhanced: bool = True,
         task = 'multitask',
-        readout = 'vallina'
+        readout = 'vanilla'
     ):
         if not model_type.lower() in ["painn", "eqgat", "schnet", "egnn", "egnn_edge", "gearnet"]:
             print("Wrong select model type")
@@ -154,9 +154,9 @@ class BaseModel(nn.Module):
                                             hs_dim=sdim, hv_dim=vdim,
                                             use_mlp=False)
         
-        if self.task in ['lba', 'ppi', 'multi']:
+        if self.task in ['lba', 'ppi', 'multi', 'affinity']:
             self.affinity_heads = nn.ModuleList()
-            if self.task == 'lba' or self.task == 'ppi':
+            if self.task == 'lba' or self.task == 'ppi' or self.task == 'affinity':
                 self.affinity_heads.append(nn.Sequential(
                     DenseLayer(sdim, sdim, activation=nn.SiLU(), bias=True),
                     nn.Dropout(dropout),
@@ -209,7 +209,7 @@ class BaseModel(nn.Module):
                 DenseLayer(sdim, 1, bias=True)
             )
         self.readout = readout
-        print("Readout Strategy:", readout)
+        # print("Readout Strategy:", readout)
         if readout == 'task_aware_attention':
             self.affinity_prompts = nn.Parameter(torch.ones(len(self.affinity_heads), 1, sdim))
             self.property_prompts = nn.Parameter(torch.ones(len(self.property_heads), 1, sdim))
@@ -280,9 +280,12 @@ class BaseModel(nn.Module):
             if self.use_norm:
                 s, _ = self.post_norm(x=(s, None), batch=batch)
             s = self.post_lin(s)
-
+            
+        # print(self.graph_level)
+        # print(self.readout)
         if self.graph_level:
-            if self.readout == 'vallina':
+            if self.readout == 'vanilla':
+                # print("in")
                 y_pred = scatter(s, index=batch, dim=0, reduce=self.graph_pooling)
                 # 将链从1编号改为从0编号
                 chain_pred = scatter(s[(lig_flag!=0).squeeze(), :], index=(chains-1).squeeze(), dim=0, reduce=self.graph_pooling)
@@ -298,7 +301,7 @@ class BaseModel(nn.Module):
                 elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
                     property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
                     return property_pred
-                elif self.task in ['lba', 'ppi']:
+                elif self.task in ['lba', 'ppi', 'affinity']:
                     affinity_pred = [affinity_head(y_pred[i]) for i, affinity_head in enumerate(self.affinity_heads)]
                     return affinity_pred
                 else:
@@ -321,6 +324,7 @@ class BaseModel(nn.Module):
         if subset_idx is not None:
             y_pred = y_pred[subset_idx]
         # print('Datatype:', data.type)
+        # print(y_pred)
         if self.task == 'multi':
             affinity_pred = [affinity_head(y_pred) for affinity_head in self.affinity_heads]
             property_pred = [property_head(chain_pred) for property_head in self.property_heads]
@@ -328,7 +332,7 @@ class BaseModel(nn.Module):
         elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
             property_pred = [property_head(chain_pred) for property_head in self.property_heads]
             return property_pred
-        elif self.task in ['lba', 'ppi']:
+        elif self.task in ['lba', 'ppi', 'affinity']:
             affinity_pred = [affinity_head(y_pred) for affinity_head in self.affinity_heads]
             return affinity_pred
         else:

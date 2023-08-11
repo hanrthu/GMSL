@@ -10,7 +10,7 @@ num_radial: 32
 learning_rate: 1.0e-4
 batch_accum_grad: 1
 weight_decay: 0
-max_epochs: 2
+max_epochs: 30
 enhanced: False
 readout: weighted_feature
 # 这些都是EQGAT需要的参数，之后优化掉
@@ -30,8 +30,8 @@ num_workers: 4
 
 # Trainer Settings
 device: 
-  - 1
-nruns: 3
+  - 3
+nruns: 1
 wandb: False
 save_dir: gearnet
 gradient_clip_val: 10

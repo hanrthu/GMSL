@@ -228,7 +228,7 @@ def choose_monitor(task):
     if task == 'multi':
         monitor = 'val_loss'
         mode = 'min'
-    elif task == 'affinity':
+    elif task in ['affinity', 'lba', 'ppi']:
         monitor = 'val_loss'
         mode = 'min'
     elif task in ['bp', 'mf', 'cc', 'go', 'ec']:
@@ -358,7 +358,7 @@ if __name__ == "__main__":
         print(
             f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
         )
-    elif args.train_task == 'affinity':
+    elif args.train_task in ['affinity', 'lba', 'ppi']:
         model = AffinityModel(
             args=args,
             sdim=args.sdim,
@@ -420,7 +420,7 @@ if __name__ == "__main__":
             enhanced=args.enhanced,
             offset_strategy = args.offset_strategy,
             task=args.train_task,
-            readout=args.readout
+            # readout=args.readout
         )
         # 根据不同任务设置选择最优模型的方法
         monitor, mode = choose_monitor(args.train_task)

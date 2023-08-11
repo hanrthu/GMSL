@@ -33,7 +33,7 @@ class CustomMultiTaskDataset(Dataset):
     """
     The Custom MultiTask Dataset with uniform labels
     """
-    def __init__(self, root_dir: str = './datasets/MultiTask', label_dir: str = './datasets/MultiTask/uniformed_labels.json',
+    def __init__(self, root_dir: str = './datasets/Multi_task', label_dir: str = './datasets/MultiTask/uniformed_labels.json',
                 remove_hoh = True, remove_hydrogen = False, cutoff = 6, split : str = 'train', task = 'multi', gearnet = False, alpha_only=False):
         super(CustomMultiTaskDataset, self).__init__(root_dir)
         print("Initializing MultiTask Dataset...")
@@ -42,15 +42,15 @@ class CustomMultiTaskDataset(Dataset):
         with open(label_dir, 'r') as f:
             self.labels = json.load(f)
         self.remove_hoh = remove_hoh
-        self.remove_hydrogen = remove_hydrogen # 移除氢的
+        self.remove_hydrogen = remove_hydrogen # 移除氢
         self.cutoff = cutoff
         self.gearnet = gearnet
         self.alpha_only = alpha_only
         file_dir = os.path.join(root_dir, split+'.txt')        
-        self.ec_root = './datasets/EnzymeCommission/all'
-        self.go_root = './datasets/GeneOntology/all'
-        self.lba_root = './datasets/PDBbind/refined-set'
-        self.pp_root = './datasets/PDBbind/PP'
+        self.ec_root = './data/EnzymeCommission/all'
+        self.go_root = './data/GeneOntology/all'
+        self.lba_root = './data/PDBbind/refined-set'
+        self.pp_root = './data/PDBbind/PP'
         with open(file_dir, 'r') as f:
             self.files = f.readlines()
             self.files = [i.strip() for i in self.files]
@@ -58,7 +58,7 @@ class CustomMultiTaskDataset(Dataset):
             print("Wrong selected split. Have to choose between ['train', 'val', 'test', 'test_all']")
             print("Exiting code")
             exit()
-        if task not in ['affinity', 'ec', 'cc', 'mf', 'bp', 'multi', 'go']:
+        if task not in ['affinity', 'ec', 'cc', 'mf', 'bp', 'multi', 'go', 'lba', 'ppi']:
             print("Wrong selected task. Have to choose between ['affinity', 'ec', 'cc', 'mf', 'bp', 'multi', 'go']")
             print("Exiting code")
             exit()
@@ -302,7 +302,7 @@ class CustomMultiTaskDataset(Dataset):
                     new_complexes.append(item)
             self.processed_complexes = new_complexes
             self.transform_func = GNNTransformGO(task=self.task, gearnet=self.gearnet)
-        elif self.task == 'affinity':
+        elif self.task in ['affinity', 'lba', 'ppi']:
             print("Using Affinity Dataset for training:")
             root_dir = './output_info/protein_protein_uniprots.json'
             with open(root_dir, 'r') as f:
