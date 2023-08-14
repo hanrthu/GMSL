@@ -210,13 +210,16 @@ class BaseModel(nn.Module):
         self.readout = readout
         print("Readout Strategy:", readout)
         if readout == 'task_aware_attention':
-            self.affinity_prompts = nn.Parameter(torch.ones(len(self.affinity_heads), 1, sdim))
-            self.property_prompts = nn.Parameter(torch.ones(len(self.property_heads), 1, sdim))
-            self.global_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.affinity_heads))
-            self.chain_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.property_heads))
+            self.affinity_prompts = nn.Parameter(torch.ones(1, len(self.affinity_heads), sdim))
+            self.property_prompts = nn.Parameter(torch.ones(1, len(self.property_heads), sdim))
+            self.global_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim)
+            self.chain_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim)
+            nn.init.kaiming_normal_(self.affinity_prompts)
+            nn.init.kaiming_normal_(self.property_prompts)
             # print(self.affinity_prompts.shape)
             # print(self.property_prompts.shape)
         elif readout == 'weighted_feature':
+            # Different weights for different tasks
             self.affinity_weights = nn.Parameter(torch.ones(len(self.affinity_heads), 1, sdim))
             self.property_weights = nn.Parameter(torch.ones(len(self.property_heads), 1, sdim))
             nn.init.kaiming_normal_(self.affinity_weights)
@@ -303,9 +306,25 @@ class BaseModel(nn.Module):
                 else:
                     raise RuntimeError
             # TODO: Implement task aware attention 
-            elif self.readout == 'taskaware_attention':
-                y_pred = None
-                chain_pred = None
+            elif self.readout == 'task_aware_attention':
+                global_index = batch
+                y_pred = self.global_readout(self.affinity_prompts, s, global_index)
+                chain_index = (chains-1).squeeze()
+                proteins = s[(lig_flag!=0).squeeze(), :]
+                # print("Shapes:", chain_index.shape, proteins.shape)
+                chain_pred = self.chain_readout(self.property_prompts, proteins, chain_index)
+                if self.task == 'multi':
+                    affinity_pred = [affinity_head(y_pred[i].squeeze()) for i, affinity_head in enumerate(self.affinity_heads)]
+                    property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
+                    return affinity_pred, property_pred
+                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
+                    property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
+                    return property_pred
+                elif self.task in ['lba', 'ppi']:
+                    affinity_pred = [affinity_head(y_pred[i]) for i, affinity_head in enumerate(self.affinity_heads)]
+                    return affinity_pred
+                else:
+                    raise RuntimeError
             if self.model_type == "egnn_edge":
                 edge_batch = batch[edge_index[0]]
                 # e_external = e[external_flag==1]

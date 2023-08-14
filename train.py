@@ -302,11 +302,6 @@ if __name__ == "__main__":
     torch.set_float32_matmul_precision('high')
     args = get_argparse()
     device = args.device
-    # if device != "cpu":
-    #     if ',' not in device:
-    #         device = [int(device)]
-    #     else:
-    #         device = [int(i) for i in device.split(',')]
     if args.wandb:
         name = args.run_name + time.strftime("%Y-%m-%d-%H-%M-%S")
         wandb.init(project='gmsl', name=name)
@@ -315,66 +310,11 @@ if __name__ == "__main__":
         wandb_logger = None
 
     if args.train_task == 'multi':
-        # model = MultiTaskModel(
-        #     sdim=args.sdim,
-        #     vdim=args.vdim,
-        #     depth=args.depth,
-        #     model_type=args.model_type,
-        #     learning_rate=args.learning_rate,
-        #     weight_decay=args.weight_decay,
-        #     r_cutoff=4.5,
-        #     num_radial=args.num_radial,
-        #     max_epochs=args.max_epochs,
-        #     factor_scheduler=0.75,
-        #     enhanced=args.enhanced,
-        #     offset_strategy = args.offset_strategy,
-        #     task=args.train_task,
-        #     readout=args.readout
-        # )
-        # print(
-        #     f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
-        # )
         model_cls = MultiTaskModel
     elif args.train_task in ['ec', 'go', 'mf', 'bp', 'cc']:
-        # model = PropertyModel(
-        #     sdim=args.sdim,
-        #     vdim=args.vdim,
-        #     depth=args.depth,
-        #     model_type=args.model_type,
-        #     learning_rate=args.learning_rate,
-        #     weight_decay=args.weight_decay,
-        #     r_cutoff=4.5,
-        #     num_radial=args.num_radial,
-        #     max_epochs=args.max_epochs,
-        #     factor_scheduler=0.75,
-        #     enhanced=args.enhanced,
-        #     offset_strategy = args.offset_strategy,
-        #     task=args.train_task
-        # )
         model_cls = PropertyModel
-        # print(
-        #     f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
-        # )
     elif args.train_task == 'affinity':
-        # model = AffinityModel(
-        #     sdim=args.sdim,
-        #     vdim=args.vdim,
-        #     depth=args.depth,
-        #     model_type=args.model_type,
-        #     learning_rate=args.learning_rate,
-        #     weight_decay=args.weight_decay,
-        #     r_cutoff=4.5,
-        #     num_radial=args.num_radial,
-        #     max_epochs=args.max_epochs,
-        #     factor_scheduler=0.75,
-        #     enhanced=args.enhanced,
-        #     offset_strategy = args.offset_strategy,
-        #     task=args.train_task
-        # )
         model_cls = AffinityModel
-        # print(
-        #     f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
-        # )
         
     model_dir = osp.join(MODEL_DIR, args.save_dir)
     if not osp.exists(model_dir):
