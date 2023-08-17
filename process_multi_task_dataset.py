@@ -84,7 +84,8 @@ def save_dataset_info(dir, complex_list):
         f.close()
 
 def gen_ec_labels():
-    root_dir = './datasets/EnzymeCommission/nrPDB-EC_annot.tsv'
+    # root_dir = './datasets/EnzymeCommission/nrPDB-EC_annot.tsv'
+    root_dir = './data/EC/nrPDB-EC_annot.tsv'
     with open(root_dir, 'r') as f:
         lines = f.readlines()
     ec_classes = lines[1].strip().split('\t')
@@ -113,7 +114,7 @@ def gen_ec_labels():
         
 
 def gen_go_labels(go_uniprot_dict):
-    root_dir = './datasets/GeneOntology/nrPDB-GO_annot.tsv'
+    root_dir = './data/GeneOntology/nrPDB-GO_annot.tsv'
     with open(root_dir, 'r') as f:
         lines = f.readlines()
     go_classes_molecular_functions = lines[1].strip().split('\t')
@@ -162,7 +163,7 @@ def gen_go_labels(go_uniprot_dict):
 
 
 def gen_lba_labels():
-    root_dir = './datasets/PDBbind/refined-set/index/INDEX_general_PL_data.2020'
+    root_dir = './data/PDBbind/refined-set/index/INDEX_general_PL_data.2020'
     res = {}
     with open(root_dir) as f:
         for line in f:
@@ -177,7 +178,7 @@ def gen_lba_labels():
     return res
 
 def gen_ppi_labels():
-    root_dir = './datasets/protein_protein/pp_affinity.xlsx'
+    root_dir = './data/protein_protein/pp_affinity.xlsx'
     pp_info = pd.read_excel(root_dir, header=1)
     pdb_codes = pp_info['PDB code']
     res = {}

@@ -10,7 +10,7 @@ num_radial: 32
 learning_rate: 1.0e-4
 batch_accum_grad: 1
 weight_decay: 0
-max_epochs: 10
+max_epochs: 50
 enhanced: False
 readout: weighted_feature
 # 这些都是EQGAT需要的参数，之后优化掉
@@ -20,8 +20,8 @@ no_feat_attn: False
 #Dataset Settings
 drop_last: False
 run_name: gearnet
-train_task: ppi
-train_split: train
+train_task: ec
+train_split: train_all
 val_split: val
 test_split: test
 alpha_only: True
@@ -31,7 +31,7 @@ num_workers: 4
 # Trainer Settings
 device: 
   - 3
-nruns: 1
+nruns: 3
 wandb: False
 save_dir: gearnet
 gradient_clip_val: 10
