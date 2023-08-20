@@ -730,7 +730,8 @@ class PropertyModel(pl.LightningModule):
 
         return [optimizer], schedulers
     def cal_fmax(self, preds, y_true):
-        # print("cal fmax:", y_pred.shape, y_true.shape)
+        # print("cal fmax:", preds.shape, y_true.shape)
+        # print("pred:",preds)
         thresholds = torch.linspace(0, 0.95, 20)
         fs = []
         # print("Thres:", thresholds)
@@ -744,12 +745,14 @@ class PropertyModel(pl.LightningModule):
             classes = [1944]
         elif self.task == 'cc':
             classes = [321]
-
+        elif self.task == 'fold':
+            classes = [1195]
         for thres in thresholds:
             y_pred = torch.zeros(preds.shape).to(preds.device)
             y_pred[preds>=thres] = 1
             y_pred[preds<thres] = 0
             # print("Pred:", y_pred.shape)
+            # print(y_pred)
             has_pred = torch.zeros(y_pred.shape[0])
             predict_rows = torch.sum(y_pred, dim=1)
             has_pred[predict_rows >= 1] = 1
@@ -784,7 +787,7 @@ class PropertyModel(pl.LightningModule):
         fs = torch.tensor(fs)
         f_max = torch.max(fs, dim=0)[0]
         # print(f_max)
-        if self.task in ['ec', 'mf', 'bp', 'cc']:
+        if self.task in ['ec', 'mf', 'bp', 'cc','fold']:
             return f_max[0].item()
         elif self.task == 'go':
             return f_max[0].item(), f_max[1].item(), f_max[2].item(), f_max[3].item()
@@ -800,19 +803,26 @@ class PropertyModel(pl.LightningModule):
         y_property_pred = self.model(data)[0]
         y_property_true = data.functions
         y_property_mask = data.valid_masks
-        # print("y_property_mask:", y_property_mask)
-        # print("y_property_mask shape:", y_property_mask.shape)
-        # print("y_property_pred:", y_property_pred)
-        # print('y_property_pred shape:', y_property_pred.shape)
+        # print("in forward:")
         # print("y_property_true:", y_property_true)
+        # # print("y_property_mask shape:", y_property_mask.shape)
+        
+        # print("y_property_pred:", y_property_pred)
+        # # print('y_property_pred shape:', y_property_pred.shape)
+        # print("y_property_mask:", y_property_mask)
         # print("y_property_true shape:", y_property_true.shape)
         y_property_true = y_property_true[(y_property_mask == 1).sum(dim=1) > 0, :]
+        
         y_property_pred = y_property_pred[(y_property_mask == 1).sum(dim=1) > 0, :]
+        # print("y_property_pred after process:", y_property_pred)
         return y_property_pred, y_property_true
 
 
     def training_step(self, batch, batch_idx):
         y_property_pred, y_property_true = self(batch)
+        # print("in training_step:")
+        # print("y_property_pred:",y_property_pred)
+        # print("y_property_true",y_property_true)
         bce_loss = self.bce(y_property_pred, y_property_true) * int(len(y_property_pred)!=0)
         loss = 10 * bce_loss
         self.log("train_loss", loss, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
@@ -822,6 +832,9 @@ class PropertyModel(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         y_property_pred, y_property_true = self(batch)
+        # print("in validation_step:")
+        # print("y_property_pred:",y_property_pred)
+        # print("y_property_true",y_property_true)
         bce_loss = self.bce(y_property_pred, y_property_true) * int(len(y_property_pred)!=0)
         self.log("val_bce", bce_loss, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
         self.log("val_loss", 10 * bce_loss, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
@@ -853,7 +866,7 @@ class PropertyModel(pl.LightningModule):
         property_pred = torch.concat([x["property_pred"] for x in self.validation_step_outputs])
         property_true = torch.concat([x["property_true"] for x in self.validation_step_outputs])
         bce_loss = self.bce(property_pred, property_true)
-        if self.task in ['ec', 'bp', 'mf', 'cc']:
+        if self.task in ['ec', 'bp', 'mf', 'cc','fold']:
             fmax_all = self.cal_fmax(property_pred, property_true)
             val_loss = 10 * bce_loss
             to_print = (
@@ -889,7 +902,7 @@ class PropertyModel(pl.LightningModule):
     def on_test_epoch_end(self):
         property_pred = torch.concat([x["property_pred"] for x in self.test_step_outputs])
         property_true = torch.concat([x["property_true"] for x in self.test_step_outputs])
-        if self.task in ['ec', 'bp', 'mf', 'cc']:
+        if self.task in ['ec', 'bp', 'mf', 'cc','fold']:
             fmax_all = self.cal_fmax(property_pred, property_true)
             to_print = (
             f"{self.current_epoch:<10}: "

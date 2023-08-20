@@ -33,7 +33,7 @@ class CustomMultiTaskDataset(Dataset):
     """
     The Custom MultiTask Dataset with uniform labels
     """
-    def __init__(self, root_dir: str = './datasets/EnzymeCommissionNew', label_dir: str = './datasets/EnzymeCommissionNew/uniformed_labels.json',
+    def __init__(self, root_dir: str = './datasets/HomologyTAPE', label_dir: str = './datasets/HomologyTAPE/uniformed_labels.json',
                 remove_hoh = True, remove_hydrogen = False, cutoff = 6, split : str = 'train', task = 'multi', gearnet = False, alpha_only=False):
         super(CustomMultiTaskDataset, self).__init__(root_dir)
         print("Initializing MultiTask Dataset...")
@@ -60,7 +60,7 @@ class CustomMultiTaskDataset(Dataset):
             print("Wrong selected split. Have to choose between ['train', 'val', 'test', 'test_all']")
             print("Exiting code")
             exit()
-        if task not in ['ppi','lba', 'ec', 'cc', 'mf', 'bp', 'multi', 'go']:
+        if task not in ['ppi','lba', 'ec', 'cc', 'mf', 'bp', 'multi', 'go','fold']:
             print("Wrong selected task. Have to choose between ['affinity', 'ec', 'cc', 'mf', 'bp', 'multi', 'go']")
             print("Exiting code")
             exit()
@@ -278,21 +278,21 @@ class CustomMultiTaskDataset(Dataset):
                 extra_info = [i.strip() for i in extra_info]
         else:
             extra_info = []
-        if self.task == 'ec':
-            print("Using Enzyme Commission Dataset for training:")
+        if self.task in ['ec','fold']:
+            print("Using {} for training:".format(self.task))
             root_dir = './output_info/enzyme_commission_uniprots.json'
             with open(root_dir, 'r') as f:
                 info_dict = json.load(f)
             new_complexes = []
-            for item in self.processed_complexes:
-                if item['complex_id'] in info_dict or item['complex_id'] in extra_info: #.keys()?
-                    labels = item['labels']
-                    annot_number = len(labels['uniprots'])
-                    for j in range(annot_number):
-                        labels['go'][j] = -1
-                    item['labels'] = labels
-                    new_complexes.append(item)
-            self.processed_complexes = new_complexes
+            # for item in self.processed_complexes:
+            #     if item['complex_id'] in info_dict or item['complex_id'] in extra_info: #.keys()?
+            #         labels = item['labels']
+            #         annot_number = len(labels['uniprots'])
+            #         for j in range(annot_number):
+            #             labels['go'][j] = -1
+            #         item['labels'] = labels
+            #         new_complexes.append(item)
+            # self.processed_complexes = new_complexes
             self.transform_func = GNNTransformEC(task=self.task, gearnet=self.gearnet)
             print("Using EC dataset and transformation")
         elif self.task in ['bp', 'mf', 'cc', 'go']:
@@ -589,7 +589,7 @@ class GNNTransformEC(object):
 
     def __call__(self, item: Dict) -> MyData:
         # print("Using Transform EC")
-        info_root = './output_info/uniprot_dict_all.json'
+        info_root = './output_info/Homology_uniprots.json'
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
         ligand_df = item["atoms_ligand"]
@@ -615,24 +615,30 @@ class GNNTransformEC(object):
         #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
         for i, id in enumerate(chain_ids):
             lig_flag[torch.tensor(list(atom_df['chain'] == id))] = i + 1
-            if '-' in item['complex_id']:
-                pf_ids.append(0)
-                break
-            if id in chain_uniprot_info[item['complex_id']]:
-                uniprot_id = chain_uniprot_info[item['complex_id']][id]
-                uniprot_ids.append(uniprot_id)
-                labels_uniprot = labels['uniprots']
-                if uniprot_id in labels_uniprot:
-                    for idx, u in enumerate(labels_uniprot):
-                        if uniprot_id == u:
-                            pf_ids.append(idx)
-                            break
-                else:
-                    pf_ids.append(-1)
-                    print("Error, you shouldn't come here!")
-            else:
-                pf_ids.append(-1)
-        num_classes =640
+            pf_ids.append(0)
+            break
+            # if '-' in item['complex_id']:
+            #     pf_ids.append(0)
+            #     break
+            # if id in chain_uniprot_info.keys():
+            #     uniprot_id = chain_uniprot_info[id][0]
+            #     uniprot_ids.append(uniprot_id)
+            #     labels_uniprot = labels['uniprots']
+            #     print("id:",id)
+            #     print("uniprot id:",uniprot_id)
+            #     print("labels_uniprot:",labels_uniprot)
+            #     if uniprot_id in labels_uniprot:
+            #         for idx, u in enumerate(labels_uniprot):
+            #             if uniprot_id == u:
+            #                 pf_ids.append(idx)
+            #                 break
+            #     else:
+            #         pf_ids.append(-1)
+            #         print("Error, you shouldn't come here!")
+            # else:
+                
+            #     pf_ids.append(-1)
+        num_classes =1195
         if self.gearnet:
             graph = hetero_graph_transform(
                 atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
@@ -641,7 +647,9 @@ class GNNTransformEC(object):
             graph = prot_graph_transform(
                 atom_df=atom_df, cutoff=self.cutoff, max_num_neighbors=self.max_num_neighbors, flag=lig_flag, super_node=self.supernode, offset_strategy=self.offset_strategy
             )
-        ec = labels['ec']
+        ec = labels['fold']
+        # print("labels:",ec)
+        # print("pf-ids:",pf_ids)
         graph.functions = []
         graph.valid_masks = []
         for i, pf_id in enumerate(pf_ids):
@@ -658,7 +666,7 @@ class GNNTransformEC(object):
                 valid_mask[:] = 0
             else:
                 annotations = ec_annot
-                
+            # print(annotations)
             prop = torch.zeros(num_classes).scatter_(0,torch.tensor(annotations),1)
             graph.functions.append(prop)
             graph.valid_masks.append(valid_mask)
@@ -674,7 +682,7 @@ class GNNTransformEC(object):
             raise RuntimeError    
         graph.chains = lig_flag[lig_flag!=0]
         # print(item['complex_id'])
-
+        # print("graph func:",graph.functions)
         graph.lig_flag = lig_flag
         if len(chain_ids) != len(graph.functions):
             print(item['complex_id'])

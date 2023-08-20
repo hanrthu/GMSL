@@ -1,6 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
-from selenium import webdriver
+# from selenium import webdriver
 import time
 import random
 import re
@@ -93,7 +93,31 @@ def parse_info_EnzymeCommission():
     enzymecommission_dict = get_uniprots(query_url, chains_total, chain=True)
     with open('./output_info/enzyme_commission_new_uniprots.json', 'w') as f:
         json.dump(enzymecommission_dict, f)
-
+def parse_info_fold():
+    query_url = 'http://www.rcsb.org/structure/'
+    filenames = ['./datasets/HomologyTAPE/train.txt','./datasets/HomologyTAPE/val.txt','./datasets/HomologyTAPE/test.txt']
+    raw_chains = []
+    chains_total = []
+    for filename in filenames:
+        f =open(filename,'r')
+        for line in f.readlines():
+            item = line.split('\t')[0]
+            raw_chains.append(item)
+            chains_total.append(item[1:5].upper()+"-"+item[-2].upper())
+    
+    chains_total = list(set(chains_total))
+    print("chains total:",chains_total)
+    print("Total length of Homology:", len(chains_total))
+    fold_dict = get_uniprots(query_url, chains_total, chain=True)
+    fold_raw_dict = {}
+    print("fold raw dict:",fold_dict)
+    for raw_chain in raw_chains:
+        chain = raw_chain[1:5].upper()+"-"+raw_chain[-2].upper()
+        if chain in fold_dict.keys():
+            fold_raw_dict[raw_chain] = fold_dict[chain]
+    with open('./output_info/Homology_uniprots.json', 'w') as f:
+        json.dump(fold_raw_dict, f)
+    
 def parse_info_GeneOntology():
     query_url = 'http://www.rcsb.org/structure/'
     train_chains= read_file('./data/GeneOntology/nrPDB-GO_train.txt')
@@ -116,7 +140,7 @@ def gen_info_list(json_dir):
     return info_list
 
 if __name__ == '__main__':
-    parse_info_EnzymeCommission()
+    parse_info_fold()
     # if not os.path.exists('./output_info/protein_ligand_uniprots.json') or not os.path.exists('./output_info/protein_protein_uniprots.json'):
     #     print("Parsing PDBBind from PDBbank...")
     #     parse_info_PDBBind()

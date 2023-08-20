@@ -185,6 +185,8 @@ class BaseModel(nn.Module):
             class_nums = [321]
         elif self.task == 'go':
             class_nums = [490, 1944, 321]
+        elif self.task == 'fold':
+            class_nums = [1195]
         elif self.task == 'multi':
             class_nums = [640, 490, 1944, 321]
         else:
@@ -305,7 +307,7 @@ class BaseModel(nn.Module):
                     affinity_pred = [affinity_head(y_pred[i].squeeze()) for i, affinity_head in enumerate(self.affinity_heads)]
                     property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
                     return affinity_pred, property_pred
-                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
+                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc','fold']:
                     property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
                     return property_pred
                 elif self.task in ['lba', 'ppi']:
@@ -342,8 +344,10 @@ class BaseModel(nn.Module):
             affinity_pred = [affinity_head(y_pred) for affinity_head in self.affinity_heads]
             property_pred = [property_head(chain_pred) for property_head in self.property_heads]
             return affinity_pred, property_pred
-        elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
+        elif self.task in ['ec', 'go', 'mf', 'bp', 'cc','fold']:
             property_pred = [property_head(chain_pred) for property_head in self.property_heads]
+            # print("property pred:",property_pred)
+            # print("property pred shape:",property_pred.shape)
             return property_pred
         elif self.task in ['lba', 'ppi']:
             affinity_pred = [affinity_head(y_pred) for affinity_head in self.affinity_heads]
