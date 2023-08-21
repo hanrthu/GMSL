@@ -176,17 +176,24 @@ class BaseModel(nn.Module):
                 self.affinity_heads.append(lba)
                 self.affinity_heads.append(ppi)
         if self.task == 'ec':
-            class_nums = [538]
+            # class_nums = [538]
+            class_nums = [3615]
         elif self.task == 'mf':
-            class_nums = [490]
+            # class_nums = [490]
+            class_nums = [5348]
         elif self.task == 'bp':
-            class_nums = [1944]
+            # class_nums = [1944]
+            class_nums = [10285]
         elif self.task == 'cc':
-            class_nums = [321]
+            # class_nums = [321]
+            class_nums = [1901]
         elif self.task == 'go':
-            class_nums = [490, 1944, 321]
+            # class_nums = [490, 1944, 321]
+            class_nums = [5348, 10285, 1901]
         elif self.task == 'multi':
-            class_nums = [538, 490, 1944, 321]
+            # class_nums = [538, 490, 1944, 321]
+            # class_nums = [3615, 490, 1944, 321]
+            class_nums = [3615, 5348, 10285, 1901]
         else:
             class_nums = []
         # print("Class Nums:", class_nums)

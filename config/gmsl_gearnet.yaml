@@ -30,8 +30,8 @@ num_workers: 4
 
 # Trainer Settings
 device: 
-  - 3
-nruns: 3
+  - 0
+nruns: 2
 wandb: False
 save_dir: gearnet
 gradient_clip_val: 10

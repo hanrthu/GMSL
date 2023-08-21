@@ -49,7 +49,9 @@ class MultiTaskModel(pl.LightningModule):
         self.max_epochs = max_epochs
         # 4 Multilabel Binary Classification Tasks
         # 之后可以做到Config中
-        self.property_info = {'ec': 538, 'mf': 490, 'bp': 1944, 'cc': 321}
+        # self.property_info = {'ec': 538, 'mf': 490, 'bp': 1944, 'cc': 321}
+        # self.property_info = {'ec': 3615, 'mf': 490, 'bp': 1944, 'cc': 321}
+        self.property_info = {'ec': 3615, 'mf': 5348, 'bp': 10285, 'cc': 1901}
         self.affinity_info = {'lba': 1, 'ppi': 1}
         # Weight of loss for each task
         # 之后可以变成可学习的版本
@@ -739,15 +741,20 @@ class PropertyModel(pl.LightningModule):
         fs = []
         # print("Thres:", thresholds)
         if self.task == 'ec':
-            classes = [538]
+            # classes = [538]
+            classes = [3615]
         elif self.task == 'go':
-            classes = [490, 1944, 321]
+            # classes = [490, 1944, 321]
+            classes = [5348, 10285, 1901]
         elif self.task == 'mf':
-            classes = [490]
+            # classes = [490]
+            classes = 5348
         elif self.task == 'bp':
-            classes = [1944]
+            # classes = [1944]
+            classes = [10285]
         elif self.task == 'cc':
-            classes = [321]
+            # classes = [321]
+            classes = [1901]
 
         for thres in thresholds:
             y_pred = torch.zeros(preds.shape).to(preds.device)

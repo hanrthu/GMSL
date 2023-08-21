@@ -2,7 +2,7 @@ import os
 import os.path as osp
 from argparse import ArgumentParser
 from typing import Dict, List, Tuple, Union
-
+import gzip
 import pandas as pd
 import torch
 # from atom3d.datasets import deserialize
@@ -33,10 +33,11 @@ class CustomMultiTaskDataset(Dataset):
     """
     The Custom MultiTask Dataset with uniform labels
     """
-    def __init__(self, root_dir: str = './datasets/Multi_task', label_dir: str = './datasets/MultiTask/uniformed_labels.json',
+    def __init__(self, root_dir: str = './datasets/MultiTask', label_dir: str = './datasets/MultiTask/uniformed_labels.json',
                 remove_hoh = True, remove_hydrogen = False, cutoff = 6, split : str = 'train', task = 'multi', gearnet = False, alpha_only=False):
         super(CustomMultiTaskDataset, self).__init__(root_dir)
-        print("Initializing MultiTask Dataset...")
+        print("in")
+        print("in Initializing MultiTask Dataset...")
         self.root_dir = root_dir
         self.cache_dir = os.path.join(root_dir, "{}.cache".format(split))
         with open(label_dir, 'r') as f:
@@ -48,7 +49,9 @@ class CustomMultiTaskDataset(Dataset):
         self.alpha_only = alpha_only
         file_dir = os.path.join(root_dir, split+'.txt')        
         self.ec_root = './data/EnzymeCommission/all'
-        self.go_root = './data/GeneOntology/all'
+        # self.ec_root = './data/EC/all'
+        # self.go_root = './data/GeneOntology/all'
+        self.go_root = './data/GO/all'
         self.lba_root = './data/PDBbind/refined-set'
         self.pp_root = './data/PDBbind/PP'
         with open(file_dir, 'r') as f:
@@ -70,11 +73,24 @@ class CustomMultiTaskDataset(Dataset):
         self.go_files = os.listdir(self.go_root)
         self.lba_files = os.listdir(self.lba_root)
         self.pp_files = os.listdir(self.pp_root)
+        pdb_files = os.listdir('./data/EC/all')
         if '-' in item:
-            if item+'.pdb' in self.ec_files:
+            if item +'.pdb' in self.ec_files:
                 return os.path.join(self.ec_root, item+'.pdb'), -1
             elif item+'.pdb' in self.go_files:
                 return os.path.join(self.go_root, item+'.pdb'), -1
+            elif item.split('-')[0] +'.pdb.gz' in self.ec_files:
+                return os.path.join(self.ec_root, item.split('-')[0] +'.pdb.gz'), -1
+            elif item.split('-')[0] +'.pdb' in self.ec_files:
+                return os.path.join(self.ec_root, item.split('-')[0] +'.pdb'), -1
+            elif item.split('-')[0] +'.pdb.gz' in self.go_files:
+                return os.path.join(self.go_root, item.split('-')[0] +'.pdb.gz'), -1
+            elif item.split('-')[0] +'.pdb' in self.go_files:
+                return os.path.join(self.go_root, item.split('-')[0] +'.pdb'), -1
+            elif item.split('-')[0] +'.pdb.gz' in pdb_files:
+                return os.path.join('./data/EC/all', item.split('-')[0] +'.pdb.gz'), -1
+            elif item.split('-')[0] +'.pdb' in pdb_files:
+                return os.path.join('./data/EC/all', item.split('-')[0] +'.pdb'), -1
         else:
             if item + '.ent.pdb' in self.pp_files:
                 return os.path.join(self.pp_root, item+'.ent.pdb'), -1
@@ -82,7 +98,7 @@ class CustomMultiTaskDataset(Dataset):
                 protein_dir = os.path.join(self.lba_root, item, item + "_protein.pdb")
                 ligand_dir = os.path.join(self.lba_root, item, item + '_ligand.mol2')
                 return protein_dir, ligand_dir
-        print(item)
+        print("item", item)
         return -1, -1
     def gen_df(self, coords, elements):
         assert len(coords) == len(elements)
@@ -118,7 +134,7 @@ class CustomMultiTaskDataset(Dataset):
                 self.retain_alpha_carbon()
         else:
             print("Cache not found! Start processing Multitask files...Total Number {}".format(len(self.files)))
-            # count = 0
+            count = 0
             for score_idx, item in enumerate(tqdm(self.files)):
                 structure_dir, ligand_dir = self.find_structure(item)
                 if ligand_dir != -1:
@@ -128,8 +144,25 @@ class CustomMultiTaskDataset(Dataset):
                     ligand_df = self.gen_df(ligand_coords, atom_map_lig)
                 else:
                     ligand_df = None
+                split_chain_flag = False
+                # print(structure_dir)
+                file_is_chain = False
+                have_chain_id = False
+                pdb_id = None
+                chain_id = None
                 try:
-                    structure = p.get_structure(item, structure_dir)
+                    if '-' in structure_dir:
+                        file_is_chain = True
+                    if '.gz' in structure_dir:
+                        if '-' in item:
+                            pdb_id, chain_id = item.split('-')
+                            file_is_chain = False
+                            have_chain_id = True
+                        file_handle = gzip.open(structure_dir, 'rt')
+                        split_chain_flag = True
+                    else:
+                        file_handle = structure_dir
+                    structure = p.get_structure(item, file_handle)
                 except:
                     corrupted.append(item)
                     continue
@@ -145,6 +178,17 @@ class CustomMultiTaskDataset(Dataset):
                     continue
                 model = structure[0]
                 chains = list(model.get_chains())
+                if file_is_chain:
+                    chain = chains[0]
+                else:
+                    if have_chain_id:
+                        for chain in chains:
+                            if chain.id == chain_id:
+                                break
+                if have_chain_id:
+                    if chain.id != chain_id:
+                        print('cannot find chain:', pdb_id, chain_id)
+                chains = [chain]
                 pattern = re.compile(r'\d+H.')
                 processed_complex = {'complex_id': item, 'num_proteins': protein_numbers, 'labels': self.labels[item],
                                     'atoms_protein': [], 'protein_seq': [], 'atoms_ligand':ligand_df}
@@ -193,11 +237,14 @@ class CustomMultiTaskDataset(Dataset):
                 protein_df = pd.DataFrame({'chain': chain_ids, 'resname': resnames, 'element': elements, 'name': names, 'x': xs, 'y': ys, 'z': zs})
                 processed_complex['atoms_protein'] = protein_df
                 processed_complex['protein_seq'] = protein_seq
-                
+                # print(processed_complex)
                 self.processed_complexes.append(processed_complex)
-                # count += 1
+                count += 1
+                # print("count:", count)
+                # print(len(processed_complexes))
                 # if count == 128:
                 #     break
+            print(len(self.processed_complexes))
             print("Structure processed Done, dumping...")
             print("Structures with Wrong numbers:", len(wrong_number), wrong_number)
             print("Structures with NMR methods:", len(nmr_files), nmr_files)
@@ -216,6 +263,9 @@ class CustomMultiTaskDataset(Dataset):
         correct = True
         chain_ids = list(set(complx['atoms_protein']['chain']))
         if '-' not in complx['complex_id']:
+            # if complx['complex_id'] == '4p3y':
+            #     print(complx['complex_id'], id, uniprot_id, chain_ids, chain_uniprot_info[complx['complex_id']])
+            #     print(labels_uniprot)
             for i, id in enumerate(chain_ids):
                 if id in chain_uniprot_info[complx['complex_id']]:
                     uniprot_id = chain_uniprot_info[complx['complex_id']][id]
@@ -223,7 +273,8 @@ class CustomMultiTaskDataset(Dataset):
                     if uniprot_id not in labels_uniprot:
                         print("Error, you shouldn't come here!")
                         correct = False
-                        print(complx['complex_id'], chain_ids, chain_uniprot_info[complx['complex_id']])
+                        print(complx['complex_id'],id, uniprot_id, chain_ids, chain_uniprot_info[complx['complex_id']])
+                        print(labels_uniprot)
         return correct
     def cal_length_thres(self, complxes):
         length_list = []
@@ -241,12 +292,13 @@ class CustomMultiTaskDataset(Dataset):
             return True
     def check_dataset(self):
         print("Checking the dataset...")
-        info_root = './output_info/uniprot_dict_all.json'
+        info_root = './output_info/uniprot_dict_all_go.json'
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
         thres = self.cal_length_thres(self.processed_complexes)
         if self.split == 'train':
             thres = 6712
+
         self.processed_complexes = [i for i in tqdm(self.processed_complexes) if self.length_check(i, thres) and self.correctness_check(chain_uniprot_info, i)]
     
     def retain_alpha_carbon(self):
@@ -288,10 +340,13 @@ class CustomMultiTaskDataset(Dataset):
             print("Using EC dataset and transformation")
         elif self.task in ['bp', 'mf', 'cc', 'go']:
             print("Using Gene Ontology {} Dataset for training:".format(self.split))
-            root_dir = './output_info/gene_ontology_uniprots.json'
+            # root_dir = './output_info/gene_ontology_uniprots.json'
+            root_dir = './output_info/go_uniprots.json'
+            print("now")
             with open(root_dir, 'r') as f:
                 info_dict = json.load(f)
             new_complexes = []
+            print("ok")
             for item in self.processed_complexes:
                 if item['complex_id'] in info_dict or item['complex_id'] in extra_info:
                     labels = item['labels']
@@ -301,9 +356,10 @@ class CustomMultiTaskDataset(Dataset):
                     item['labels'] = labels
                     new_complexes.append(item)
             self.processed_complexes = new_complexes
+            print([complx['complex_id'] for complx in new_complexes])
             self.transform_func = GNNTransformGO(task=self.task, gearnet=self.gearnet)
         elif self.task in ['affinity', 'lba', 'ppi']:
-            print("Using Affinity Dataset for training:")
+            print("Using Affinity Dataset for trainisng:")
             root_dir = './output_info/protein_protein_uniprots.json'
             with open(root_dir, 'r') as f:
                 info_dict1 = json.load(f)
@@ -322,12 +378,14 @@ class CustomMultiTaskDataset(Dataset):
                     item['labels'] = labels
                     new_complexes.append(item)
             self.processed_complexes = new_complexes
+            # print(new_complexes)
             self.transform_func = GNNTransformAffinity(task=self.task, gearnet=self.gearnet)
         else:
             self.transform_func = GNNTransformMultiTask(gearnet=self.gearnet)
     def len(self):
         return len(self.processed_complexes)
     def get(self, idx):
+        # print(type(self.processed_complexes))
         return self.transform_func(self.processed_complexes[idx])
 
 class GNNTransformGO(object):
@@ -350,6 +408,7 @@ class GNNTransformGO(object):
         self.gearnet = gearnet
 
     def __call__(self, item: Dict) -> MyData:
+        # info_root = './output_info/uniprot_dict_all_go.json'
         info_root = './output_info/uniprot_dict_all.json'
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
@@ -396,13 +455,17 @@ class GNNTransformGO(object):
                 pf_ids.append(-1)
                 
         if self.task == 'mf':
-            num_classes = 490
+            # num_classes = 490
+            num_classes = 5348
         elif self.task == 'bp':
-            num_classes = 1944
+            # num_classes = 1944
+            num_classes = 10285
         elif self.task == 'cc':
-            num_classes = 321
+            # num_classes = 321
+            num_classes = 1901
         elif self.task == 'go':
-            num_classes = 490 + 1944 + 321
+            # num_classes = 490 + 1944 + 321
+            num_classes = 5348 + 10285 + 1901
         else:
             raise RuntimeError
         # 找个办法把chain和Uniprot对应起来，然后就可以查了
@@ -418,7 +481,11 @@ class GNNTransformGO(object):
         # graph.y = torch.zeros(self.num_classes).scatter_(0,torch.tensor(labels),1)
         graph.functions = []
         graph.valid_masks = []
-        
+        if len(go) == 0:
+            print(item['complex_id'])
+        if item['complex_id'] == '3EWD-A':
+            print(go)
+        # print("pfids:", pf_ids)
         for i, pf_id in enumerate(pf_ids):
             if pf_id == -1:
                 valid_mask = torch.zeros(num_classes)
@@ -428,7 +495,17 @@ class GNNTransformGO(object):
                 continue
             valid_mask = torch.ones(num_classes)
             annotations = []
+            try:
+                go_annot = go[pf_id]
+            except Exception as e:
+                print(go)
+                print(item['complex_id'])
             go_annot = go[pf_id]
+            # print(go)
+            # print("pf_id", pf_id)
+            # print(go_annot)
+            if item['complex_id'] == '3EWD-A':
+                print(go_annot)
             if self.task == 'mf':
                 mf_annot = go_annot['molecular_functions'] 
                 mf_annot = [j for j in mf_annot]
@@ -448,18 +525,28 @@ class GNNTransformGO(object):
                     valid_mask[:] = 0
                 annotations = cc_annot
             elif self.task == 'go':
+                # print(type(go_annot))
+                # print(go_annot)
+                # print(go_annot['molecular_functions'] )
+                if isinstance(go_annot, int):
+                    print(item['complex_id'])
                 mf_annot = go_annot['molecular_functions'] 
                 mf_annot = [j for j in mf_annot]
                 if len(mf_annot) == 0:
-                    valid_mask[: 490] = 0
+                    # valid_mask[: 490] = 0
+                    valid_mask[: 5348] = 0
                 bp_annot = go_annot['biological_process']
-                bp_annot = [j + 490 for j in bp_annot]
+                # bp_annot = [j + 490 for j in bp_annot]
+                bp_annot = [j + 5348 for j in bp_annot]
                 if len(bp_annot) == 0:
-                    valid_mask[490: 490+1944] = 0
+                    # valid_mask[490: 490+1944] = 0
+                    valid_mask[5348: 5348+10285] = 0
                 cc_annot = go_annot['cellular_component']
-                cc_annot = [j+490+1944 for j in cc_annot]
+                # cc_annot = [j+490+1944 for j in cc_annot]
+                cc_annot = [j+5348+10285 for j in cc_annot]
                 if len(cc_annot) == 0:
-                    valid_mask[490+1944: ] = 0
+                    # valid_mask[490+1944: ] = 0
+                    valid_mask[5348+10285: ] = 0
                 annotations = mf_annot + bp_annot + cc_annot
                 
             prop = torch.zeros(num_classes).scatter_(0,torch.tensor(annotations),1)
@@ -482,6 +569,7 @@ class GNNTransformGO(object):
         if len(chain_ids) != len(graph.functions):
             print(item['complex_id'])
             print(chain_ids)
+            print(graph.function)
             print(len(chain_ids), len(graph.functions))
         graph.prot_id = item["complex_id"]
         graph.type = self.task
@@ -580,7 +668,7 @@ class GNNTransformEC(object):
 
     def __call__(self, item: Dict) -> MyData:
         # print("Using Transform EC")
-        info_root = './output_info/uniprot_dict_all.json'
+        info_root = './output_info/uniprot_dict_all_go.json'
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
         ligand_df = item["atoms_ligand"]
@@ -623,7 +711,9 @@ class GNNTransformEC(object):
                     print("Error, you shouldn't come here!")
             else:
                 pf_ids.append(-1)
-        num_classes =538
+        # num_classes =538
+        num_classes = 3615
+        # num_classes = 538
         if self.gearnet:
             graph = hetero_graph_transform(
                 atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
@@ -697,7 +787,7 @@ class GNNTransformMultiTask(object):
 
     def __call__(self, item: Dict) -> MyData:
         # print("Using Transform LBA")
-        info_root = './output_info/uniprot_dict_all.json'
+        info_root = './output_info/uniprot_dict_all_go.json'
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
         
@@ -743,8 +833,12 @@ class GNNTransformMultiTask(object):
                 pf_ids.append(-1)
         # ec, mf, bp, cc
         # num_classes = 538 + 490 + 1944 + 321
-        num_classes = [538, 490, 1944, 321]
-        total_classes = 538 + 490 + 1944 + 321
+        # num_classes = [538, 490, 1944, 321]
+        # total_classes = 538 + 490 + 1944 + 321
+        # num_classes = [3615, 490, 1944, 321]
+        # total_classes = 3615 + 490 + 1944 + 321
+        num_classes = [3615, 5348, 10285, 1901]
+        total_classes = 3615 + 5348 + 10285 + 1901
         # 找个办法把chain和Uniprot对应起来，然后就可以查了
         if self.gearnet:
             graph = hetero_graph_transform(
@@ -787,15 +881,21 @@ class GNNTransformMultiTask(object):
                 valid_mask[1:] = 0
             else:
                 mf_annot = go_annot['molecular_functions'] 
-                mf_annot = [j + 538 for j in mf_annot]
+                # mf_annot = [j + 538 for j in mf_annot]
+                mf_annot = [j + 3615 for j in mf_annot]
+                # mf_annot = [j + 538 for j in mf_annot]
                 if len(mf_annot) == 0:
                     valid_mask[1] = 0
                 bp_annot = go_annot['biological_process']
-                bp_annot = [j + 538 + 490 for j in bp_annot]
+                # bp_annot = [j + 538 + 490 for j in bp_annot]
+                # bp_annot = [j + 3615 + 490 for j in bp_annot]
+                bp_annot = [j + 3615 + 5348 for j in bp_annot]
                 if len(bp_annot) == 0:
                     valid_mask[2] = 0
                 cc_annot = go_annot['cellular_component']
-                cc_annot = [j + 538 + 490 + 1944 for j in cc_annot]
+                # cc_annot = [j + 538 + 490 + 1944 for j in cc_annot]
+                # cc_annot = [j + 3615 + 490 + 1944 for j in cc_annot]
+                cc_annot = [j + 3615 + 5348 + 10285 for j in cc_annot]
                 if len(cc_annot) == 0:
                     valid_mask[3] = 0
                 annotations = annotations + mf_annot + bp_annot + cc_annot

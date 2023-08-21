@@ -146,7 +146,7 @@ class LBADataLightning(pl.LightningDataModule):
         batch_size: int = 128,
         num_workers: int = 4,
         train_task: str = 'multi',
-        train_split: str = 'train_all',
+        train_split: str = 'train_ec',
         val_split: str = 'val',
         test_split: str = 'test',
         gearnet = False,
@@ -176,9 +176,12 @@ class LBADataLightning(pl.LightningDataModule):
         return None
 
     def setup(self, stage: Optional[str] = None):
-        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
-        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
-        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
+        r_d = './datasets/MultiTask'
+        if self.train_task == 'go':
+            r_d = './datasets/MultiTask_go'
+        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json')
+        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json')
+        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json')
 
     def train_dataloader(self, shuffle: bool = False):
         # if self.auxiliary != None:

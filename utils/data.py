@@ -141,7 +141,8 @@ class GNNTransformProteinFunction(object):
         cutoff: float = 4.5,
         remove_hydrogens: bool = False,
         max_num_neighbors: int = 32,
-        num_classes = 538,
+        # num_classes = 538,
+        num_classes = 3615,
         type = 'ec'
     ):
         self.cutoff = cutoff
