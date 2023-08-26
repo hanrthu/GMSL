@@ -9,9 +9,6 @@ from tqdm import tqdm
 from typing import Any
 from torch_geometric.typing import OptTensor, SparseTensor
 import torch.nn.functional as F
-import yaml
-import jinja2
-import easydict
 from .edge_construction import KNNEdge, SpatialEdge, SequentialEdge
 from .utils import MyData
 NUM_ATOM_TYPES = 10
@@ -55,6 +52,7 @@ amino_acids = lambda x: {"GLY": 0, "ALA": 1, "SER": 2, "PRO": 3, "VAL": 4, "THR"
 
 def gen_multi_channel_coords(protein_df, ligand_df, protein_seq):
     res_info = protein_df['residue'].values
+    print("Res_info:", res_info)
     protein_pos = torch.as_tensor(protein_df[["x", "y", "z"]].values, dtype=torch.float64)
     protein_element = torch.as_tensor(list(map(element_mapping, protein_df['element'])), dtype=torch.long)
     element_protein = torch.zeros((len(protein_seq), MAX_CHANNEL)) 
@@ -62,9 +60,10 @@ def gen_multi_channel_coords(protein_df, ligand_df, protein_seq):
     mask_protein = torch.zeros(X_protein.shape[:-1])
     current_channel = 0
     for i, item in enumerate(res_info):
-        X_protein[int(item)-1, current_channel, :] = protein_pos[i]
+        # print("Details:", i ,item, len(X_protein), len(protein_pos), len(res_info))
+        X_protein[int(item), current_channel, :] = protein_pos[i]
         element_protein[int(item-1), current_channel] = protein_element[i]
-        mask_protein[int(item)-1, current_channel] = 1
+        mask_protein[int(item), current_channel] = 1
         if i < len(res_info-1) and res_info[i] == res_info[i+1]:
             current_channel += 1
         else:
@@ -104,9 +103,10 @@ def hetero_graph_transform(
     A function that can generate graph with different kinds of edges
     """
     # TODO: 重构此段代码，需要适配alpha only和全原子的两种情况（目前全原子的情况仅对坐标做multichannel的适配, 氨基酸仍然用一个feature来表示）
-    print("Creating Heterogenuous graph!")
-    protein_df = atom_df[flag!=0].reset_index(drop=True)
-    ligand_df = atom_df[flag==0].reset_index(drop=True)
+    # print("Creating Heterogenuous graph!")
+    protein_df = atom_df[atom_df.resname != "LIG"].reset_index(drop=True)
+    ligand_df = atom_df[atom_df.resname == "LIG"].reset_index(drop=True)
+    print("Proteindf and Atomdf", len(protein_df), len(atom_df), len(ligand_df))
     if not alpha_only:
         pos, channel_weights, residue_elements = gen_multi_channel_coords(protein_df, ligand_df, protein_seq) # [N, n_channel, d], [N, n_channel], [N, n_channel] 
         # Retains alpha_carbon for protein_node representation

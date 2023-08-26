@@ -27,7 +27,7 @@ class MultiTaskModel(pl.LightningModule):
         task = 'multi',
         readout = 'vallina'
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet"]:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet"]:
             print("Wrong select model type")
             print("Exiting code")
             exit()
@@ -427,7 +427,7 @@ class AffinityModel(pl.LightningModule):
         offset_strategy: int = 0,
         task = 'affinity'
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet"]:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet"]:
             print("Wrong select model type")
             print("Exiting code")
             exit()
@@ -634,7 +634,7 @@ class PropertyModel(pl.LightningModule):
         offset_strategy: int = 0,
         task = 'go'
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet"]:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet"]:
             print("Wrong select model type")
             print("Exiting code")
             exit()

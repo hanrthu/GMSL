@@ -34,7 +34,7 @@ class CustomMultiTaskDataset(Dataset):
     The Custom MultiTask Dataset with uniform labels
     """
     def __init__(self, root_dir: str = './datasets/MultiTask', label_dir: str = './datasets/MultiTask/uniformed_labels.json',
-                remove_hoh = True, remove_hydrogen = False, cutoff = 6, split : str = 'train', task = 'multi', hetero = False, alpha_only=False):
+                remove_hoh = True, remove_hydrogen = True, cutoff = 6, split : str = 'train', task = 'multi', hetero = False, alpha_only=False):
         super(CustomMultiTaskDataset, self).__init__(root_dir)
         print("Initializing MultiTask Dataset...")
         self.root_dir = root_dir
@@ -42,6 +42,8 @@ class CustomMultiTaskDataset(Dataset):
         with open(label_dir, 'r') as f:
             self.labels = json.load(f)
         self.remove_hoh = remove_hoh
+        if remove_hydrogen:
+            print("Removign Hydrogen...")
         self.remove_hydrogen = remove_hydrogen # 移除氢的
         self.cutoff = cutoff
         self.hetero = hetero
@@ -158,7 +160,9 @@ class CustomMultiTaskDataset(Dataset):
                 protein_seq = []
                 names = []
                 resnames = []
+                residues = []
                 # chain = chains[0]
+                curr_residue = 0
                 for chain in chains:
                     if chain.id == ' ':
                         continue
@@ -185,6 +189,7 @@ class CustomMultiTaskDataset(Dataset):
                             else:
                                 element = atom_id
                             names.append(atom_id)
+                            residues.append(curr_residue)
                             elements.append(element)
                             chain_ids.append(chain.id)
                             resnames.append(residue.get_resname())
@@ -192,7 +197,8 @@ class CustomMultiTaskDataset(Dataset):
                             xs.append(x)
                             ys.append(y)
                             zs.append(z)
-                protein_df = pd.DataFrame({'chain': chain_ids, 'resname': resnames, 'element': elements, 'name': names, 'x': xs, 'y': ys, 'z': zs})
+                        curr_residue += 1
+                protein_df = pd.DataFrame({'chain': chain_ids, 'residue': residues, 'resname': resnames, 'element': elements, 'name': names, 'x': xs, 'y': ys, 'z': zs})
                 processed_complex['atoms_protein'] = protein_df
                 processed_complex['protein_seq'] = protein_seq
                 

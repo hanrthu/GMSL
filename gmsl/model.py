@@ -43,7 +43,7 @@ class BaseModel(nn.Module):
         batch_norm = True,
         layer_norm = True
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "egnn", "egnn_edge", "gearnet", 'hemenet']:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "egnn", "egnn_edge", "gearnet", "hemenet"]:
             print("Wrong select model type")
             print("Exiting code")
             exit()
@@ -116,7 +116,7 @@ class BaseModel(nn.Module):
                 layer_norm=layer_norm,
                 concat_hidden=concat_hidden,
                 short_cut=True,
-                readout='sum',
+                # readout='sum',
                 num_relation=7,
                 # 这个59维包括了inresidue（20），outresidue（20），relation（7），sequentialdist（11）和spatialdist（1）
                 edge_input_dim=59,
@@ -149,7 +149,6 @@ class BaseModel(nn.Module):
                 layer_norm=layer_norm,
                 concat_hidden=concat_hidden,
                 short_cut=True,
-                readout='sum',
                 num_relation=7,
                 # 这个59维包括了inresidue（20），outresidue（20），relation（7），sequentialdist（11）和spatialdist（1）
                 edge_input_dim=59,
@@ -252,8 +251,8 @@ class BaseModel(nn.Module):
         if readout == 'task_aware_attention':
             self.affinity_prompts = nn.Parameter(torch.ones(1, len(self.affinity_heads), sdim))
             self.property_prompts = nn.Parameter(torch.ones(1, len(self.property_heads), sdim))
-            self.global_readout = MultiLayerTAR(in_features=sdim, hidden_size=sdim, out_features=sdim, num_layers=3)
-            self.chain_readout = MultiLayerTAR(in_features=sdim, hidden_size=sdim, out_features=sdim, num_layers=3)
+            self.global_readout = MultiLayerTAR(in_features=sdim, hidden_size=sdim, out_features=sdim, num_layers=1)
+            self.chain_readout = MultiLayerTAR(in_features=sdim, hidden_size=sdim, out_features=sdim, num_layers=1)
             nn.init.kaiming_normal_(self.affinity_prompts)
             nn.init.kaiming_normal_(self.property_prompts)
             # print(self.affinity_prompts.shape)

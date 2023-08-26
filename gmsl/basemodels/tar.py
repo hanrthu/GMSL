@@ -14,11 +14,11 @@ class MultiLayerTAR(nn.Module):
         dropout = 0.2,
         weight_init: Callable = kaiming_uniform_,
         bias_init: Callable = zeros_,
-        num_tars = 1):
+        num_layers = 1):
         super(MultiLayerTAR, self).__init__()
-        self.num_tars = num_tars
+        self.num_layers = num_layers
         self.readout = nn.ModuleList()
-        for i in range(num_tars):
+        for i in range(self.num_layers):
             if i == 0:
                 self.readout.append(TaskAwareReadout(in_features=in_features, hidden_size=hidden_size, out_features=out_features, num_attention_heads=num_attention_heads, 
                                                        dropout=dropout, weight_init=weight_init, bias_init=bias_init))
@@ -29,7 +29,7 @@ class MultiLayerTAR(nn.Module):
      
     def forward(self, task_prompt, input, index):
         hidden_states = task_prompt
-        for i in range(self.num_tars):
+        for i in range(self.num_layers):
              hidden_states = self.readout[i](hidden_states, input, index)
         output_feature = hidden_states.permute(1, 0, 2)
         return output_feature

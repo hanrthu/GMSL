@@ -21,7 +21,7 @@ no_feat_attn: False
 drop_last: False
 run_name: hemenet
 train_task: multi
-train_split: train
+train_split: train_all
 val_split: val
 test_split: test
 alpha_only: False

@@ -172,7 +172,7 @@ class AM_EGCL(nn.Module):
     eps = 1e-6
 
     def __init__(self, input_dim, output_dim, hidden_dim, num_relation, channel_dim, coords_agg = 'mean',
-                edge_input_dim=0, batch_norm=True, attention=False, activation="relu", dropout = 0.1):
+                edge_input_dim=0, batch_norm=True, attention=False, activation=nn.SiLU(), dropout = 0.1):
         super(AM_EGCL, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -186,10 +186,10 @@ class AM_EGCL(nn.Module):
             self.batch_norm = nn.BatchNorm1d(output_dim)
         else:
             self.batch_norm = None
-        if isinstance(activation, str):
-            self.activation = getattr(F, activation)
-        else:
-            self.activation = activation
+        # if isinstance(activation, str):
+        #     self.activation = getattr(F, activation)
+        # else:
+        self.activation = activation
         self.radial_linear = nn.Linear(channel_dim ** 2, channel_dim)
         self.hetero_linear = nn.Linear(num_relation * input_dim, output_dim)
         if edge_input_dim != 0:
