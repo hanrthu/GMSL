@@ -148,7 +148,7 @@ class LBADataLightning(pl.LightningDataModule):
         train_split: str = 'train_all',
         val_split: str = 'val',
         test_split: str = 'test',
-        gearnet = False,
+        hetero = False,
         alpha_only = False,
     ):
         super(LBADataLightning, self).__init__()
@@ -160,7 +160,7 @@ class LBADataLightning(pl.LightningDataModule):
         self.train_split = train_split
         self.val_split = val_split
         self.test_split = test_split
-        self.gearnet = gearnet
+        self.hetero = hetero
         self.alpha_only = alpha_only
     @property
     def num_features(self) -> int:
@@ -175,9 +175,9 @@ class LBADataLightning(pl.LightningDataModule):
         return None
 
     def setup(self, stage: Optional[str] = None):
-        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
-        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
-        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
+        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only)
+        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only)
+        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only)
 
     def train_dataloader(self, shuffle: bool = False):
         # if self.auxiliary != None:
@@ -335,7 +335,7 @@ if __name__ == "__main__":
             train_split=args.train_split,
             val_split=args.val_split,
             test_split=args.test_split,
-            gearnet=True if args.model_type=='gearnet' else False,
+            hetero=True if (args.model_type=='gearnet' or args.model_type=='hemenet') else False,
             alpha_only=args.alpha_only
             # auxiliary=None
         )

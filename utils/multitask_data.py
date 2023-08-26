@@ -34,7 +34,7 @@ class CustomMultiTaskDataset(Dataset):
     The Custom MultiTask Dataset with uniform labels
     """
     def __init__(self, root_dir: str = './datasets/MultiTask', label_dir: str = './datasets/MultiTask/uniformed_labels.json',
-                remove_hoh = True, remove_hydrogen = False, cutoff = 6, split : str = 'train', task = 'multi', gearnet = False, alpha_only=False):
+                remove_hoh = True, remove_hydrogen = False, cutoff = 6, split : str = 'train', task = 'multi', hetero = False, alpha_only=False):
         super(CustomMultiTaskDataset, self).__init__(root_dir)
         print("Initializing MultiTask Dataset...")
         self.root_dir = root_dir
@@ -44,7 +44,7 @@ class CustomMultiTaskDataset(Dataset):
         self.remove_hoh = remove_hoh
         self.remove_hydrogen = remove_hydrogen # 移除氢的
         self.cutoff = cutoff
-        self.gearnet = gearnet
+        self.hetero = hetero
         self.alpha_only = alpha_only
         file_dir = os.path.join(root_dir, split+'.txt')        
         self.ec_root = './datasets/EnzymeCommission/all'
@@ -91,8 +91,10 @@ class CustomMultiTaskDataset(Dataset):
         for item in elements:
             if item in ['CL', 'Cl', 'Br', 'BR', 'AT', 'At', 'F', 'I']:
                 element = 'Halogen'
-            elif item in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI', 'Ca', 'Hg']:
+            elif item in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI', 'Ca', 'Hg', 'NA']:
                 element = 'Metal'
+            elif item[0] in ['C','N','O','S','P','H']:
+                element = item[0]
             else:
                 element = item
             unified_elements.append(element)
@@ -174,7 +176,7 @@ class CustomMultiTaskDataset(Dataset):
                                 element = 'H'
                             elif atom_id[0:2] in ['CL', 'Cl', 'Br', 'BR', 'AT', 'At']:
                                 element = 'Halogen'
-                            elif atom_id[0:2] in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI']:
+                            elif atom_id[0:2] in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI', 'Ca', 'Hg', 'NA']:
                                 element = 'Metal'
                             elif atom_id[0] in ['F', 'I']:
                                 element = 'Halogen'
@@ -195,9 +197,7 @@ class CustomMultiTaskDataset(Dataset):
                 processed_complex['protein_seq'] = protein_seq
                 
                 self.processed_complexes.append(processed_complex)
-                # count += 1
-                # if count == 128:
-                #     break
+
             print("Structure processed Done, dumping...")
             print("Structures with Wrong numbers:", len(wrong_number), wrong_number)
             print("Structures with NMR methods:", len(nmr_files), nmr_files)
@@ -284,7 +284,7 @@ class CustomMultiTaskDataset(Dataset):
                     item['labels'] = labels
                     new_complexes.append(item)
             self.processed_complexes = new_complexes
-            self.transform_func = GNNTransformEC(task=self.task, gearnet=self.gearnet)
+            self.transform_func = GNNTransformEC(task=self.task, hetero=self.hetero, alpha_only=self.alpha_only)
             print("Using EC dataset and transformation")
         elif self.task in ['bp', 'mf', 'cc', 'go']:
             print("Using Gene Ontology {} Dataset for training:".format(self.split))
@@ -301,7 +301,7 @@ class CustomMultiTaskDataset(Dataset):
                     item['labels'] = labels
                     new_complexes.append(item)
             self.processed_complexes = new_complexes
-            self.transform_func = GNNTransformGO(task=self.task, gearnet=self.gearnet)
+            self.transform_func = GNNTransformGO(task=self.task, hetero=self.hetero, alpha_only=self.alpha_only)
         elif self.task == 'affinity':
             print("Using Affinity Dataset for training:")
             root_dir = './output_info/protein_protein_uniprots.json'
@@ -322,9 +322,9 @@ class CustomMultiTaskDataset(Dataset):
                     item['labels'] = labels
                     new_complexes.append(item)
             self.processed_complexes = new_complexes
-            self.transform_func = GNNTransformAffinity(task=self.task, gearnet=self.gearnet)
+            self.transform_func = GNNTransformAffinity(task=self.task, hetero=self.hetero, alpha_only=self.alpha_only)
         else:
-            self.transform_func = GNNTransformMultiTask(gearnet=self.gearnet)
+            self.transform_func = GNNTransformMultiTask(hetero=self.hetero, alpha_only=self.alpha_only)
     def len(self):
         return len(self.processed_complexes)
     def get(self, idx):
@@ -339,7 +339,8 @@ class GNNTransformGO(object):
         supernode: bool = False,
         offset_strategy: int = 0,
         task='bp', #可能是bp, mf, cc中的一个
-        gearnet=False
+        hetero=False,
+        alpha_only=False
     ):
         self.cutoff = cutoff
         self.remove_hydrogens = remove_hydrogens
@@ -347,7 +348,8 @@ class GNNTransformGO(object):
         self.supernode = supernode
         self.offset_strategy = offset_strategy
         self.task = task
-        self.gearnet = gearnet
+        self.hetero = hetero
+        self.alpha_only = alpha_only
 
     def __call__(self, item: Dict) -> MyData:
         info_root = './output_info/uniprot_dict_all.json'
@@ -394,7 +396,7 @@ class GNNTransformGO(object):
                     print("Error, you shouldn't come here!")
             else:
                 pf_ids.append(-1)
-        print("pf_id",pf_ids)        
+        # print("pf_id",pf_ids)        
         if self.task == 'mf':
             num_classes = 490
         elif self.task == 'bp':
@@ -406,9 +408,9 @@ class GNNTransformGO(object):
         else:
             raise RuntimeError
         # 找个办法把chain和Uniprot对应起来，然后就可以查了
-        if self.gearnet:
+        if self.hetero:
             graph = hetero_graph_transform(
-                atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
+                atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq'], alpha_only=self.alpha_only
             )
         else:
             graph = prot_graph_transform(
@@ -463,7 +465,7 @@ class GNNTransformGO(object):
                 annotations = mf_annot + bp_annot + cc_annot
                 
             prop = torch.zeros(num_classes).scatter_(0,torch.tensor(annotations),1)
-            print(prop)
+            # print(prop)
             graph.functions.append(prop)
             graph.valid_masks.append(valid_mask)
         try:
@@ -497,7 +499,8 @@ class GNNTransformAffinity(object):
         supernode: bool = False,
         offset_strategy: int = 0,
         task='affinity', #lba/ppi
-        gearnet=False
+        hetero=False,
+        alpha_only=False,
     ):
         self.cutoff = cutoff
         self.remove_hydrogens = remove_hydrogens
@@ -505,7 +508,8 @@ class GNNTransformAffinity(object):
         self.supernode = supernode
         self.offset_strategy = offset_strategy
         self.task = task
-        self.gearnet = gearnet
+        self.hetero = hetero
+        self.alpha_only=alpha_only
 
     def __call__(self, item: Dict) -> MyData:
         # print("Using Transform Affinity")
@@ -530,7 +534,7 @@ class GNNTransformAffinity(object):
             lig_flag[torch.tensor(list(atom_df['chain'] == id))] = i + 1
         labels = item["labels"]
         #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
-        if self.gearnet:
+        if self.hetero:
             graph = hetero_graph_transform(
                 atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
             )
@@ -559,7 +563,7 @@ class GNNTransformAffinity(object):
         graph.type = self.task
         return graph
     
-    
+
 class GNNTransformEC(object):
     def __init__(
         self,
@@ -569,7 +573,8 @@ class GNNTransformEC(object):
         supernode: bool = False,
         offset_strategy: int = 0,
         task='ec', #ec
-        gearnet=False
+        hetero=False,
+        alpha_only=False
     ):
         self.cutoff = cutoff
         self.remove_hydrogens = remove_hydrogens
@@ -577,7 +582,8 @@ class GNNTransformEC(object):
         self.supernode = supernode
         self.offset_strategy = offset_strategy
         self.task = task
-        self.gearnet = gearnet
+        self.hetero = hetero
+        self.alpha_only=alpha_only
 
     def __call__(self, item: Dict) -> MyData:
         # print("Using Transform EC")
@@ -624,8 +630,8 @@ class GNNTransformEC(object):
                     print("Error, you shouldn't come here!")
             else:
                 pf_ids.append(-1)
-        num_classes =538
-        if self.gearnet:
+        num_classes = 538
+        if self.hetero:
             graph = hetero_graph_transform(
                 atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
             )
@@ -678,7 +684,6 @@ class GNNTransformEC(object):
         return graph
 
 
-
 class GNNTransformMultiTask(object):
     def __init__(
         self,
@@ -687,14 +692,16 @@ class GNNTransformMultiTask(object):
         max_num_neighbors: int = 32,
         supernode: bool = False,
         offset_strategy: int = 0,
-        gearnet = False
+        hetero = False,
+        alpha_only = False
     ):
         self.cutoff = cutoff
         self.remove_hydrogens = remove_hydrogens
         self.max_num_neighbors = max_num_neighbors
         self.supernode = supernode
         self.offset_strategy = offset_strategy
-        self.gearnet = gearnet
+        self.hetero = hetero
+        self.alpha_only=alpha_only
 
     def __call__(self, item: Dict) -> MyData:
         # print("Using Transform LBA")
@@ -747,7 +754,7 @@ class GNNTransformMultiTask(object):
         num_classes = [538, 490, 1944, 321]
         total_classes = 538 + 490 + 1944 + 321
         # 找个办法把chain和Uniprot对应起来，然后就可以查了
-        if self.gearnet:
+        if self.hetero:
             graph = hetero_graph_transform(
                 atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
             )

@@ -38,9 +38,9 @@ def gen_train_test_ids(complex_dict, ec_dict, go_dict):
             if id in test_list and k not in test_uniprots:
                 test_uniprots.append(k)
     # print("Uniprots:", len(test_uniprots))
-    # print("Train:", len(train_list), len(list(set(train_list))))
-    # print("Test:", len(test_list), len(list(set(test_list))))
-    # print("All:", len(list(set(test_list + train_list))))
+    print("Train:", len(train_list), len(list(set(train_list))))
+    print("Test:", len(test_list), len(list(set(test_list))))
+    print("All:", len(list(set(test_list + train_list))))
     # print(list(set(train_list)))
     return list(set(train_list)), list(set(test_list)), list(set(test_uniprots))
         
@@ -84,7 +84,7 @@ def save_dataset_info(dir, complex_list):
         f.close()
 
 def gen_ec_labels():
-    root_dir = './datasets/EnzymeCommission/nrPDB-EC_annot.tsv'
+    root_dir = '../datasets/EnzymeCommission/nrPDB-EC_annot.tsv'
     with open(root_dir, 'r') as f:
         lines = f.readlines()
     ec_classes = lines[1].strip().split('\t')
@@ -113,7 +113,7 @@ def gen_ec_labels():
         
 
 def gen_go_labels(go_uniprot_dict):
-    root_dir = './datasets/GeneOntology/nrPDB-GO_annot.tsv'
+    root_dir = '../datasets/GeneOntology/nrPDB-GO_annot.tsv'
     with open(root_dir, 'r') as f:
         lines = f.readlines()
     go_classes_molecular_functions = lines[1].strip().split('\t')
@@ -162,7 +162,7 @@ def gen_go_labels(go_uniprot_dict):
 
 
 def gen_lba_labels():
-    root_dir = './datasets/PDBbind/refined-set/index/INDEX_general_PL_data.2020'
+    root_dir = '../datasets/PDBbind/refined-set/index/INDEX_general_PL_data.2020'
     res = {}
     with open(root_dir) as f:
         for line in f:
@@ -177,7 +177,7 @@ def gen_lba_labels():
     return res
 
 def gen_ppi_labels():
-    root_dir = './datasets/protein_protein/pp_affinity.xlsx'
+    root_dir = '../datasets/protein_protein/pp_affinity.xlsx'
     pp_info = pd.read_excel(root_dir, header=1)
     pdb_codes = pp_info['PDB code']
     res = {}
@@ -234,7 +234,7 @@ def gen_label(pdb_ids, ec_labels, go_labels, ppi_labels, lba_labels, ec_uniprot_
         
 if __name__ == '__main__':
     print("Start processing original datasets to a multitask dataset")
-    root_dir = './output_info/'
+    root_dir = '../output_info/'
     json_files = ['enzyme_commission_uniprots.json', 'gene_ontology_uniprots.json', 'protein_protein_uniprots.json', 'protein_ligand_uniprots.json']
     json_dirs = [os.path.join(root_dir, json_file) for json_file in json_files]
     # cal_complex_all(json_dirs)
@@ -271,22 +271,22 @@ if __name__ == '__main__':
     train_list_all = list(set(train_list_pl + train_list_pp + train_list_ec + train_list_go + full_train_list))
 
     # train/val/test.txt contains samples of full labels, while train_all.txt contains labals with partial labels and samples in train.txt.
-    print("Process finished, saving information into ./dataset/MultiTask/")
-    if os.path.exists('./datasets/MultiTask/train_all.txt') and os.path.exists('./datasets/MultiTask/tmp/train.txt'):
+    print("Process finished, saving information into ../datasets/MultiTask/")
+    if os.path.exists('../datasets/MultiTask/train_all.txt') and os.path.exists('../datasets/MultiTask/tmp/train.txt'):
         print("File already exists, skip saving split information...")
     else:
         print("Saving split information...")
-        os.makedirs('./datasets/Multitask', exist_ok=True)
-        save_dataset_info('./datasets/MultiTask/train_all.txt', train_list_all)
-        save_dataset_info('./datasets/MultiTask/train.txt', full_train_list)
-        save_dataset_info('./datasets/MultiTask/val.txt', full_val_list)
-        save_dataset_info('./datasets/MultiTask/test.txt', full_test_list)
+        os.makedirs('../datasets/Multitask', exist_ok=True)
+        save_dataset_info('../datasets/MultiTask/train_all.txt', train_list_all)
+        save_dataset_info('../datasets/MultiTask/train.txt', full_train_list)
+        save_dataset_info('../datasets/MultiTask/val.txt', full_val_list)
+        save_dataset_info('../datasets/MultiTask/test.txt', full_test_list)
 
     uniformed_label_dict = gen_label(train_list_all+full_test_list+full_val_list, ec_labels, go_labels, ppi_labels, lba_labels, ec_uniprot_dict, go_uniprot_dict, ec_info_dict, go_info_dict, pp_info_dict, pl_info_dict)    
     print("An example of the processed unified label:\n", full_test_list[0], ": ", uniformed_label_dict[full_test_list[0]])
-    if os.path.exists('./datasets/MultiTask/uniformed_labels.json'):
+    if os.path.exists('../datasets/MultiTask/uniformed_labels.json'):
         print("File already exists, skip saving uniformed labels...")
     else:
         print('Generating uniformed labels...')
-        with open('./datasets/MultiTask/uniformed_labels.json', 'w') as f:
+        with open('../datasets/MultiTask/uniformed_labels.json', 'w') as f:
             json.dump(uniformed_label_dict, f)

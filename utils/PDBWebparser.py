@@ -64,8 +64,8 @@ def get_uniprots(url_root, pdbs, chain : bool = False):
     return uniprot_dict
 def parse_info_PDBBind():
     query_url = 'http://www.rcsb.org/structure/'
-    protein_ligand_dir = './data/PDBBind/refined-set/'
-    protein_protein_dir = './data/PDBBind/PP'
+    protein_ligand_dir = '../datasets/PDBBind/refined-set/'
+    protein_protein_dir = '../datasets/PDBBind/PP'
 
     pl_pdbs = os.listdir(protein_ligand_dir)
     pp_pdbs = os.listdir(protein_protein_dir)
@@ -74,9 +74,9 @@ def parse_info_PDBBind():
     pp_pdbs = [i.removesuffix('.ent.pdb') for i in pp_pdbs]
     protein_ligand_dict = get_uniprots(query_url, pl_pdbs)
     protein_protein_dict = get_uniprots(query_url, pp_pdbs) 
-    with open('./output_info/protein_ligand_uniprots.json','w') as f:
+    with open('../output_info/protein_ligand_uniprots.json','w') as f:
         json.dump(protein_ligand_dict, f)
-    with open('./output_info/protein_protein_uniprots.json','w') as f:
+    with open('../output_info/protein_protein_uniprots.json','w') as f:
         json.dump(protein_protein_dict, f)   
 
 def read_file(file_dir):
@@ -86,9 +86,9 @@ def read_file(file_dir):
 
 def parse_info_EnzymeCommission():
     query_url = 'http://www.rcsb.org/structure/'
-    train_chains= read_file('./data/EnzymeCommission/nrPDB-EC_train.txt')
-    val_chains = read_file('./data/EnzymeCommission/nrPDB-EC_valid.txt')
-    test_chains = read_file('./data/EnzymeCommission/nrPDB-EC_test.txt')
+    train_chains= read_file('../datasets/EnzymeCommission/nrPDB-EC_train.txt')
+    val_chains = read_file('../datasets/EnzymeCommission/nrPDB-EC_valid.txt')
+    test_chains = read_file('../datasets/EnzymeCommission/nrPDB-EC_test.txt')
     chains_total = list(set(train_chains + val_chains + test_chains))
     print("Total length of EnzymeCommission:", len(chains_total))
     enzymecommission_dict = get_uniprots(query_url, chains_total, chain=True)
@@ -97,13 +97,13 @@ def parse_info_EnzymeCommission():
 
 def parse_info_GeneOntology():
     query_url = 'http://www.rcsb.org/structure/'
-    train_chains= read_file('./data/GeneOntology/nrPDB-GO_train.txt')
-    val_chains = read_file('./data/GeneOntology/nrPDB-GO_valid.txt')
-    test_chains = read_file('./data/GeneOntology/nrPDB-GO_test.txt')
+    train_chains= read_file('../datasets/GeneOntology/nrPDB-GO_train.txt')
+    val_chains = read_file('../datasets/GeneOntology/nrPDB-GO_valid.txt')
+    test_chains = read_file('../datasets/GeneOntology/nrPDB-GO_test.txt')
     chains_total = list(set(train_chains + val_chains + test_chains))
     print("Total length of GeneOntology:", len(chains_total))
     enzymecommission_dict = get_uniprots(query_url, chains_total, chain=True)
-    with open('./output_info/gene_ontology_uniprots.json', 'w') as f:
+    with open('../output_info/gene_ontology_uniprots.json', 'w') as f:
         json.dump(enzymecommission_dict, f)
 
 def gen_info_list(json_dir):
@@ -117,29 +117,29 @@ def gen_info_list(json_dir):
     return info_list
 
 if __name__ == '__main__':
-    if not os.path.exists('./output_info/protein_ligand_uniprots.json') or not os.path.exists('./output_info/protein_protein_uniprots.json'):
+    if not os.path.exists('../output_info/protein_ligand_uniprots.json') or not os.path.exists('../output_info/protein_protein_uniprots.json'):
         print("Parsing PDBBind from PDBbank...")
         parse_info_PDBBind()
         print("Done!")
     else:
         print("PDBBind info already exists, skip parsing...")
-    if not os.path.exists('./output_info/enzyme_commission_uniprots.json'):
+    if not os.path.exists('../output_info/enzyme_commission_uniprots.json'):
         print("Parsing EnzymeCommission from PDBbank...")
         parse_info_EnzymeCommission()
         print("Done!")
     else:
         print("EC info already exists, skip parsing...")
-    if not os.path.exists('./output_info/gene_ontology_uniprots.json'):
+    if not os.path.exists('../output_info/gene_ontology_uniprots.json'):
         print("Parsing GeneOntology from PDBbank...")
         parse_info_GeneOntology()
         print("Done!")
     else:
         print("GO info already exists, skip parsing...")
         
-    pl_list = gen_info_list('./output_info/protein_ligand_uniprots.json')
-    pp_list = gen_info_list('./output_info/protein_protein_uniprots.json')
-    ec_list = gen_info_list('./output_info/enzyme_commission_uniprots.json')
-    ge_list = gen_info_list('./output_info/gene_ontology_uniprots.json')
+    pl_list = gen_info_list('../output_info/protein_ligand_uniprots.json')
+    pp_list = gen_info_list('../output_info/protein_protein_uniprots.json')
+    ec_list = gen_info_list('../output_info/enzyme_commission_uniprots.json')
+    ge_list = gen_info_list('../output_info/gene_ontology_uniprots.json')
     print("Number of proteins in protein-ligand binding:", len(pl_list))
     print("Number of proteins in enzyme_commision prediction:", len(ec_list))    
     print("Number of proteins in protein-protein interaction:", len(pp_list))

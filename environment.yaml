@@ -24,3 +24,6 @@ dependencies:
     - torch-sparse==0.6.17
     - easydict==1.10
     - wandb==0.15.8
+    - bs4==0.0.1
+    - selenium==4.11.2
+    - openpyxl==3.1.2

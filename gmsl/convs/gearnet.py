@@ -98,9 +98,13 @@ class IEConvLayer(nn.Module):
 
     def message(self, graph, input, edge_input):
         node_in = graph.edge_list[:, 0]
+        # 先1*1 conv映射一下feature
         message = self.linear1(input[node_in])
+        # Batchnorm一下，让整个batch一致
         message = self.message_batch_norm(message)
+        # Activation + Dropout
         message = self.dropout_before_conv(self.activation(message))
+        # IEConv的kernel，用的是MLP，对edge feature进行处理
         kernel = self.kernel(edge_input).view(-1, self.hidden_dim + 1, self.hidden_dim)
         message = torch.einsum('ijk, ik->ij', kernel[:, 1:, :], message) + kernel[:, 0, :]
 
@@ -110,7 +114,7 @@ class IEConvLayer(nn.Module):
         # 这里的Protein类似乎是source to target的形式
         node_in, node_out = graph.edge_list.t()[:2]
         edge_weight = graph.edge_weight.unsqueeze(-1)
-        # 我就假装node_out是入边吧
+        # node_out是入边
         if self.aggregate_func == "sum":
             update = scatter_add(message * edge_weight, node_out, dim=0, dim_size=graph.num_node) 
         else:
@@ -199,7 +203,7 @@ class GeometricRelationalGraphConv(nn.Module):
         output = self.combine(input, update)
         return output
     
-    
+# 这里是LineGraph需要用到的模块
 class SpatialLineGraph(nn.Module):
     """
     Spatial line graph construction module from `Protein Representation Learning by Geometric Structure Pretraining`_.
