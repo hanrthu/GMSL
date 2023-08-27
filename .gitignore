@@ -18,3 +18,4 @@ tests/*
 models/*
 lightning_logs/*
 .vscode/*
+notebooks/*
