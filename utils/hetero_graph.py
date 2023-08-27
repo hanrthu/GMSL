@@ -1,11 +1,6 @@
 import torch
 import pandas as pd
-from atom3d.util.graph import mol_atoms, one_of_k_encoding_unk
-from torch_geometric.data import Data
-import torch_cluster
 from typing import List
-import math
-from tqdm import tqdm
 from typing import Any
 from torch_geometric.typing import OptTensor, SparseTensor
 import torch.nn.functional as F
@@ -52,7 +47,6 @@ amino_acids = lambda x: {"GLY": 0, "ALA": 1, "SER": 2, "PRO": 3, "VAL": 4, "THR"
 
 def gen_multi_channel_coords(protein_df, ligand_df, protein_seq):
     res_info = protein_df['residue'].values
-    print("Res_info:", res_info)
     protein_pos = torch.as_tensor(protein_df[["x", "y", "z"]].values, dtype=torch.float64)
     protein_element = torch.as_tensor(list(map(element_mapping, protein_df['element'])), dtype=torch.long)
     element_protein = torch.zeros((len(protein_seq), MAX_CHANNEL)) 
@@ -60,11 +54,10 @@ def gen_multi_channel_coords(protein_df, ligand_df, protein_seq):
     mask_protein = torch.zeros(X_protein.shape[:-1])
     current_channel = 0
     for i, item in enumerate(res_info):
-        # print("Details:", i ,item, len(X_protein), len(protein_pos), len(res_info))
         X_protein[int(item), current_channel, :] = protein_pos[i]
-        element_protein[int(item-1), current_channel] = protein_element[i]
+        element_protein[int(item), current_channel] = protein_element[i]
         mask_protein[int(item), current_channel] = 1
-        if i < len(res_info-1) and res_info[i] == res_info[i+1]:
+        if i < len(res_info) - 1 and res_info[i] == res_info[i+1]:
             current_channel += 1
         else:
             current_channel = 0
@@ -87,52 +80,56 @@ def gen_multi_channel_coords(protein_df, ligand_df, protein_seq):
         element = element_protein
     return X, mask, element
     
-
+# Debug Passed
 def hetero_graph_transform(
+    item_name: str,
     atom_df: pd.DataFrame,
     protein_seq:pd.DataFrame,
     cutoff: float = 4.5,
     feat_col: str = "resname",
     init_dtype: torch.dtype = torch.float64,
     super_node: bool = False,
-    offset_strategy : int = 0,
-    flag: torch.Tensor = None, 
     alpha_only = False
     ):
     """
     A function that can generate graph with different kinds of edges
     """
     # TODO: 重构此段代码，需要适配alpha only和全原子的两种情况（目前全原子的情况仅对坐标做multichannel的适配, 氨基酸仍然用一个feature来表示）
-    # print("Creating Heterogenuous graph!")
     protein_df = atom_df[atom_df.resname != "LIG"].reset_index(drop=True)
     ligand_df = atom_df[atom_df.resname == "LIG"].reset_index(drop=True)
-    print("Proteindf and Atomdf", len(protein_df), len(atom_df), len(ligand_df))
     if not alpha_only:
         pos, channel_weights, residue_elements = gen_multi_channel_coords(protein_df, ligand_df, protein_seq) # [N, n_channel, d], [N, n_channel], [N, n_channel] 
         # Retains alpha_carbon for protein_node representation
-        protein_df = protein_df[protein_df.name == 'CA'].reset_index(drop=True)
         max_channel = MAX_CHANNEL
+        protein_feats = torch.as_tensor(list(map(amino_acids, protein_seq)), dtype=torch.long)
     else:
         pos = torch.as_tensor(atom_df[["x", "y", "z"]].values, dtype=init_dtype).unsqueeze(1) # [N, 1, d]
         channel_weights = torch.ones((len(pos), 1)) # [N, 1]
         residue_elements = None
         max_channel = 1
-    protein_feats = torch.as_tensor(list(map(amino_acids, protein_df[feat_col])), dtype=torch.long)
+        protein_feats = torch.as_tensor(list(map(amino_acids, protein_df['element'])), dtype=torch.long)
     if len(ligand_df) != 0:
         ligand_feats = torch.as_tensor(list(map(element_mapping, ligand_df['element'])), dtype=torch.long)
         ligand_feats += torch.max(protein_feats) + 1
         node_feats = torch.cat([protein_feats, ligand_feats], dim=-1)
     else:
         node_feats = protein_feats # Node Features 用于给Node初始化，和下述的atom type不一样
-    # print("Node Features:", node_feats.shape)
     # Onehot coding, 21 amino_acids + 10 atoms
     node_feats = torch.zeros((len(node_feats), 31)).scatter_(1, node_feats.unsqueeze(1), 1)
     residues = torch.as_tensor(list(map(amino_acids, protein_seq)), dtype=torch.long)
     # Three types of edges
     knn = KNNEdge(k=10, min_distance=5, max_channel=max_channel)
-    spatial = SpatialEdge(radius=10, min_distance=5, max_channel=max_channel)
-    sequential = SequentialEdge(max_distance=2, max_channel=max_channel)
+    spatial = SpatialEdge(radius=cutoff, min_distance=5, max_channel=max_channel)
+    sequential = SequentialEdge(max_distance=2)
     edge_layers = [knn, spatial, sequential]
+
+    if len(node_feats) != len(pos):
+        print(item_name)
+        print(len(node_feats), len(pos))
+        print(atom_df)
+        print(ligand_df)
+        print(protein_df)
+        raise ValueError
     graph = MyData(
         x=node_feats,
         residue_elements=residue_elements,
@@ -151,10 +148,6 @@ def hetero_graph_transform(
         edge_list.append(edges)
         num_edges.append(len(edges))
         num_relations.append(num_relation)
-    # print("Nume Nodes", len(graph.x))
-    # print("Num KNN Edges:", len(edge_list[0]))
-    # print("Num Spatial Edges:", len(edge_list[1]))
-    # print("Num Sequential Edges:", len(edge_list[2]))
     edge_list = torch.cat(edge_list)
     num_edges = torch.tensor(num_edges)
     num_relations = torch.tensor(num_relations)
@@ -162,10 +155,10 @@ def hetero_graph_transform(
     offsets = (num_relations.cumsum(0) - num_relations).repeat_interleave(num_edges)
     edge_list[:, 2] += offsets
     # 这里把edge_index和edge_relation分开装，是为了能够让处理batch的时候不要把relation也加上offset
-    graph.edge_index = edge_list[:, :2].t()
+    graph.edge_index = edge_list[:, :2].t() # [2, |E|]
     graph.edge_relations = edge_list[:, 2]
     graph.edge_weights = torch.ones(len(edge_list))
-    graph.num_relation = num_relation
+    graph.num_relation = num_relation    
     return graph
     
     

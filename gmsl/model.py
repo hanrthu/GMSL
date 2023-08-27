@@ -23,7 +23,7 @@ class BaseModel(nn.Module):
         self,
         num_elements: int,
         out_units: int,
-        sdim: int = 128,
+        sdim: int = 512,
         vdim: int = 16,
         depth: int = 3,
         r_cutoff: float = 5.0,
@@ -39,7 +39,6 @@ class BaseModel(nn.Module):
         enhanced: bool = True,
         task = 'multitask',
         readout = 'vallina',
-        max_channel = 10,
         batch_norm = True,
         layer_norm = True
     ):
@@ -60,6 +59,8 @@ class BaseModel(nn.Module):
         self.out_units = out_units
         self.enhanced = enhanced
         self.task = task
+        max_channel = MAX_CHANNEL
+        channel_nf = sdim
         
         self.init_embedding = nn.Embedding(num_embeddings=num_elements, embedding_dim=sdim)
         self.init_e_embedding = nn.Embedding(num_embeddings=20, embedding_dim=sdim)
@@ -109,7 +110,7 @@ class BaseModel(nn.Module):
             concat_hidden = True
             hidden_dims = [512, 512, 512, 512, 512, 512]
             self.gnn = GearNetIEConv(
-                input_dim=21,
+                input_dim=31,
                 embedding_dim=128, # ?怎么没看到config里面设置
                 hidden_dims=hidden_dims,
                 batch_norm=batch_norm,
@@ -141,10 +142,11 @@ class BaseModel(nn.Module):
             # weights = weights[residue_types]
             hidden_dims = [512, 512, 512, 512, 512, 512]
             self.gnn = HemeNet(
-                input_dim=21,
-                embedding_dim=128, # ?怎么没看到config里面设置
+                input_dim=31,
+                embedding_dim=512, # ?怎么没看到config里面设置
                 hidden_dims=hidden_dims,
                 channel_dim = max_channel,
+                channel_nf=channel_nf,
                 batch_norm=batch_norm,
                 layer_norm=layer_norm,
                 concat_hidden=concat_hidden,
@@ -277,7 +279,7 @@ class BaseModel(nn.Module):
         # print("Protein shape:", s[(lig_flag!=0).squeeze()].shape)
         # print("Lig shape, chain shape:", lig_flag.shape, chains.shape)
         # external_flag = data.external_flag
-        if self.model_type != "gearnet":
+        if self.model_type not in ["gearnet", "hemenet"]:
             s = self.init_embedding(s)
         row, col = edge_index
         rel_pos = pos[row] - pos[col]
@@ -318,10 +320,10 @@ class BaseModel(nn.Module):
             # print("Gearnet Output Shape:", s.shape)
             s = self.post_lin(s)
         elif self.model_type == 'hemenet':
-            edge_list = torch.cat([graph.edge_index.t(), graph.edge_relations.unsqueeze(-1)], dim=-1)
+            edge_list = torch.cat([data.edge_index.t(), data.edge_relations.unsqueeze(-1)], dim=-1) # [|E|, 3]
             input_data = data.x
-            channel_attr = self.channel_attr(data.residue_elements)
-            s = self.gnn(input_data, edge_list, pos, channel_attr, channel_weights)
+            channel_attr = self.channel_attr(data.residue_elements.long())
+            s, coords = self.gnn(input_data, edge_list, pos, channel_attr, channel_weights, data.edge_weights)
         else:
             s = self.gnn(x=s, edge_index=edge_index, edge_attr=d, batch=batch)
             if self.use_norm:

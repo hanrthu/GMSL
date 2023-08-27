@@ -171,7 +171,7 @@ class RollerPooling(nn.Module):
 class AM_EGCL(nn.Module):
     eps = 1e-6
 
-    def __init__(self, input_dim, output_dim, hidden_dim, num_relation, channel_dim, coords_agg = 'mean',
+    def __init__(self, input_dim, output_dim, hidden_dim, num_relation, channel_dim, channel_nf, coords_agg = 'mean',
                 edge_input_dim=0, batch_norm=True, attention=False, activation=nn.SiLU(), dropout = 0.1):
         super(AM_EGCL, self).__init__()
         self.input_dim = input_dim
@@ -190,15 +190,15 @@ class AM_EGCL(nn.Module):
         #     self.activation = getattr(F, activation)
         # else:
         self.activation = activation
-        self.radial_linear = nn.Linear(channel_dim ** 2, channel_dim)
-        self.hetero_linear = nn.Linear(num_relation * input_dim, output_dim)
+        self.radial_linear = nn.Linear(channel_nf ** 2, channel_nf)
+        self.hetero_linear = nn.Linear(num_relation * hidden_dim, output_dim)
         if edge_input_dim != 0:
             self.edge_linear = nn.Linear(edge_input_dim, input_dim)
         else:
             self.edge_linear = None
         # MLP Phi_m for scalar message 
         self.message_mlp = nn.Sequential(
-            nn.Linear(input_edge + channel_dim + edge_input_dim, hidden_dim),
+            nn.Linear(input_edge + channel_nf + edge_input_dim, hidden_dim),
             self.activation,
             nn.Linear(hidden_dim, hidden_dim),
             self.activation
@@ -217,7 +217,7 @@ class AM_EGCL(nn.Module):
             self.activation,
             layer
         )
-    def generate_radial_feature(self, coords, edge_list, channel_attr, channel_weights, edge_attr=None):
+    def generate_radial_feature(self, coords, edge_list, channel_attr, channel_weights):
         '''
             Generate radial feature, including scalar and coordinate feature.
             node_s means source node, and node_t means target_node.
@@ -229,7 +229,7 @@ class AM_EGCL(nn.Module):
             node_attr: [N, node_feature]
         '''
         source, target = edge_list[:, 0], edge_list[:, 1] # j, i
-
+        channel_weights = channel_weights.float()
         coord_msg = torch.norm(coords[target].unsqueeze(2) - coords[source].unsqueeze(1), dim=-1, keepdim=False) # [|E|, n_channel, n_channel]
         coord_msg = coord_msg * torch.bmm(channel_weights[target].unsqueeze(2), channel_weights[source].unsqueeze(1)) # [|E|, n_channel, n_channel]
         radial = torch.bmm(channel_attr[target].transpose(-1, -2), coord_msg)
@@ -258,11 +258,14 @@ class AM_EGCL(nn.Module):
             edge_attr: [|E|, edge_dim]
             node_attr: [N, node_feature]
         '''
-        radial, coord_diff = self.generate_radial_feature(h, coords, edge_list, channel_attr, channel_weights, edge_attr)
+        radial, coord_diff = self.generate_radial_feature(coords, edge_list, channel_attr, channel_weights)
         # Calculate scalar message mij
-        _, target = edge_list[:, 0], edge_list[:, 1] # j, i
-        node_s = h[edge_list[:, 0]] 
-        node_t = h[edge_list[:, 1]]
+        source, target = edge_list[:, 0], edge_list[:, 1] # j, i
+        max_target = torch.max(target)
+        max_source = torch.max(source)
+        max_nodes = h.shape[0]
+        node_s = h[source] 
+        node_t = h[target]
         if edge_attr:
             node_message = self.message_mlp(torch.cat([node_t, node_s, radial, edge_attr], dim=-1))
         else:
@@ -277,6 +280,7 @@ class AM_EGCL(nn.Module):
         n_channel = coords.shape[1]
         edge_feat = self.coord_mlp(node_message) # [|E|, n_channel]
         channel_sum = (channel_weights != 0).long().sum(-1)
+        
         pooled_edge_feat = RollerPooling(n_channel)(edge_feat, channel_sum[target])
         coord_message = coord_diff * pooled_edge_feat # [n_edge, n_channel, d]
 

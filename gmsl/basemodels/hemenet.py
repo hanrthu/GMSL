@@ -13,7 +13,7 @@ from collections import Mapping, Sequence
 from torchdrug import core, layers, tasks, metrics, utils
 
 class HemeNet(nn.Module):
-    def __init__(self, input_dim, embedding_dim, hidden_dims, num_relation, channel_dim, edge_input_dim=None,
+    def __init__(self, input_dim, embedding_dim, hidden_dims, num_relation, channel_dim, channel_nf, edge_input_dim=None,
                  batch_norm=False, activation=nn.SiLU(), concat_hidden=False, short_cut=True, 
                  coords_agg="mean", dropout=0, num_angle_bin=None, layer_norm=False, use_ieconv=False):
         super(HemeNet, self).__init__()
@@ -43,7 +43,7 @@ class HemeNet(nn.Module):
         for i in range(len(self.dims) - 1):
             # note that these layers are from gearnet.layer instead of torchdrug.layers
             self.layers.append(layer.AM_EGCL(self.dims[i], self.dims[i + 1], self.dims[i+1], num_relation,
-                                            channel_dim, coords_agg, batch_norm=batch_norm, activation=activation))
+                                            channel_dim, channel_nf, coords_agg, batch_norm=batch_norm, activation=activation))
             if use_ieconv:
                 self.ieconvs.append(layer.IEConvLayer(self.dims[i], self.dims[i] // 4, 
                                     self.dims[i+1], edge_input_dim=14, kernel_hidden_dim=32))
@@ -54,30 +54,35 @@ class HemeNet(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-    def get_ieconv_edge_feature(self, coords, input, edge_list):
+    def get_ieconv_edge_feature(self, coords, input, channel_weights, edge_list):
         '''
-            input: input feature, [N, input_dim]
             coords: [N, n_channel, d]
+            input: input feature, [N, input_dim]
+            channel_weights: [N, n_channel]
             edge_list: [|E|, 3], source, target, relation
         '''
-        u = torch.ones_like(coords)
-        u[1:] = coords[1:] - coords[:-1]
+        # We currently adopts the center of position as the postion for each node
+        channel_sum = torch.sum(channel_weights, dim=-1).unsqueeze(1)
+        coord_sum = torch.sum(coords, dim=1, keepdim=False)
+        center_pos = coord_sum / channel_sum #[N, d]
+        u = torch.ones_like(center_pos)
+        u[1:] = center_pos[1:] - center_pos[:-1]
         u = F.normalize(u, dim=-1)
-        b = torch.ones_like(coords)
+        b = torch.ones_like(center_pos)
         b[:-1] = u[:-1] - u[1:]
         b = F.normalize(b, dim=-1)
-        n = torch.ones_like(coords)
+        n = torch.ones_like(center_pos)
         n[:-1] = torch.cross(u[:-1], u[1:])
         n = F.normalize(n, dim=-1)
 
         local_frame = torch.stack([b, n, torch.cross(b, n)], dim=-1)
 
         node_in, node_out = edge_list[:, 0], edge_list[:, 1]
-        atom2residue = torch.as_tensor(range(len(input)), dtype=torch.long).to(node_in.device)
-        t = coords[node_out] - coords[node_in]
+        # atom2residue = torch.arange(0, len(center_pos)).to(node_in.device)
+        t = center_pos[node_out] - center_pos[node_in]
         t = torch.einsum('ijk, ij->ik', local_frame[node_in], t)
         r = torch.sum(local_frame[node_in] * local_frame[node_out], dim=1)
-        delta = torch.abs(atom2residue[node_in] - atom2residue[node_out]).float() / 6
+        delta = torch.abs(node_in - node_out).float() / 6
         delta = delta.unsqueeze(-1)
 
         return torch.cat([
@@ -105,7 +110,7 @@ class HemeNet(nn.Module):
         if self.embedding_dim > 0:
             layer_input = self.linear(layer_input)
             layer_input = self.embedding_batch_norm(layer_input)
-        ieconv_edge_feature = self.get_ieconv_edge_feature(coords, input, edge_list)
+        ieconv_edge_feature = self.get_ieconv_edge_feature(coords, input, channel_weights, edge_list)
 
         for i in range(len(self.layers)):
             # edge message passing

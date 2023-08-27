@@ -43,8 +43,8 @@ class CustomMultiTaskDataset(Dataset):
             self.labels = json.load(f)
         self.remove_hoh = remove_hoh
         if remove_hydrogen:
-            print("Removign Hydrogen...")
-        self.remove_hydrogen = remove_hydrogen # 移除氢的
+            print("Removing Hydrogen...")
+        self.remove_hydrogen = remove_hydrogen # 移除氢原子（必要，因为PP的文件里没有给氢原子，需要做到多任务统一）
         self.cutoff = cutoff
         self.hetero = hetero
         self.alpha_only = alpha_only
@@ -100,7 +100,7 @@ class CustomMultiTaskDataset(Dataset):
             else:
                 element = item
             unified_elements.append(element)
-        df = pd.DataFrame({'element': unified_elements, 'x': xs, 'y': ys, 'z': zs})
+        df = pd.DataFrame({'element': unified_elements, 'resname':'LIG', 'x': xs, 'y': ys, 'z': zs})
         return df
     def process_complexes(self):
         p = PDBParser(QUIET=True)
@@ -362,29 +362,21 @@ class GNNTransformGO(object):
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
         # print("Using Transform {}".format(self.task))
-        ligand_df = item['atoms_ligand']
         protein_df = item["atoms_protein"]
+        residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
         atom_df = protein_df
-        if isinstance(ligand_df, pd.DataFrame):
-            atom_df = pd.concat([protein_df, ligand_df], axis=0)
-            if self.remove_hydrogens:
-                # remove hydrogens
-                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
-            lig_flag[-len(ligand_df):] = 0
-        else:
-            atom_df = protein_df
-            if self.remove_hydrogens:
-                # remove hydrogens
-                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
+        if self.remove_hydrogens:
+            # remove hydrogens
+            atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
+            residue_df = residue_df[residue_df.element != "H"].reset_index(drop=True)
+        lig_flag = torch.zeros(residue_df.shape[0], dtype=torch.long)
         chain_ids = list(set(protein_df['chain']))
         uniprot_ids = []
         labels = item["labels"]
         pf_ids = []
         #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
         for i, id in enumerate(chain_ids):
-            lig_flag[torch.tensor(list(atom_df['chain'] == id))] = i + 1
+            lig_flag[torch.tensor(list(residue_df['chain'] == id))] = i + 1
             if '-' in item['complex_id']:
                 pf_ids.append(0)
                 break
@@ -521,13 +513,15 @@ class GNNTransformAffinity(object):
         # print("Using Transform Affinity")
         ligand_df = item["atoms_ligand"]
         protein_df = item["atoms_protein"]
-
+        residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
         if isinstance(ligand_df, pd.DataFrame):
             atom_df = pd.concat([protein_df, ligand_df], axis=0)
+            res_ligand_df = pd.concat([residue_df, ligand_df], axis=0)
             if self.remove_hydrogens:
                 # remove hydrogens
                 atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
+                res_ligand_df = res_ligand_df[res_ligand_df.element != "H"].reset_index(drop=True)
+            lig_flag = torch.zeros(res_ligand_df.shape[0], dtype=torch.long)
             lig_flag[-len(ligand_df):] = 0
         else:
             atom_df = protein_df
@@ -542,7 +536,7 @@ class GNNTransformAffinity(object):
         #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
         if self.hetero:
             graph = hetero_graph_transform(
-                atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
+                atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq'], alpha_only=self.alpha_only
             )
         else:
             graph = prot_graph_transform(
@@ -596,29 +590,23 @@ class GNNTransformEC(object):
         info_root = './output_info/uniprot_dict_all.json'
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
-        ligand_df = item["atoms_ligand"]
         protein_df = item["atoms_protein"]
         atom_df = protein_df
-        if isinstance(ligand_df, pd.DataFrame):
-            atom_df = pd.concat([protein_df, ligand_df], axis=0)
-            if self.remove_hydrogens:
-                # remove hydrogens
-                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
-            lig_flag[-len(ligand_df):] = 0
-        else:
-            atom_df = protein_df
-            if self.remove_hydrogens:
-                # remove hydrogens
-                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
+        # residue_df = protein_df[protein_df.name == 'CA'].reset_index(drop=True)
+        residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
+        
+        if self.remove_hydrogens:
+            # remove hydrogens
+            atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
+            residue_df = residue_df[residue_df.element != "H"].reset_index(drop=True)
+        lig_flag = torch.zeros(residue_df.shape[0], dtype=torch.long)
         chain_ids = list(set(protein_df['chain']))
         uniprot_ids = []
         labels = item["labels"]
         pf_ids = []
         #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
         for i, id in enumerate(chain_ids):
-            lig_flag[torch.tensor(list(atom_df['chain'] == id))] = i + 1
+            lig_flag[torch.tensor(list(residue_df['chain'] == id))] = i + 1
             if '-' in item['complex_id']:
                 pf_ids.append(0)
                 break
@@ -639,7 +627,7 @@ class GNNTransformEC(object):
         num_classes = 538
         if self.hetero:
             graph = hetero_graph_transform(
-                atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
+                atom_df=atom_df, super_node=self.supernode, protein_seq=item['protein_seq'], alpha_only=self.alpha_only
             )
         else:
             graph = prot_graph_transform(
@@ -717,27 +705,26 @@ class GNNTransformMultiTask(object):
         
         ligand_df = item["atoms_ligand"]
         protein_df = item["atoms_protein"]
-
+        residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
         if isinstance(ligand_df, pd.DataFrame):
             atom_df = pd.concat([protein_df, ligand_df], axis=0)
-            if self.remove_hydrogens:
-                # remove hydrogens
-                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
-            lig_flag[-len(ligand_df):] = 0
+            res_ligand_df = pd.concat([residue_df, ligand_df], axis=0)
         else:
             atom_df = protein_df
-            if self.remove_hydrogens:
-                # remove hydrogens
-                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
+            res_ligand_df = residue_df
+        if self.remove_hydrogens:
+            # remove hydrogens
+            atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
+            res_ligand_df = res_ligand_df[res_ligand_df.element != "H"].reset_index(drop=True)
+        # 此时ligand 所对应的atom被自动设置为0
+        lig_flag = torch.zeros(res_ligand_df.shape[0], dtype=torch.long)
         chain_ids = list(set(protein_df['chain']))
         uniprot_ids = []
         labels = item["labels"]
         pf_ids = []
         #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
         for i, id in enumerate(chain_ids):
-            lig_flag[torch.tensor(list(atom_df['chain'] == id))] = i + 1
+            lig_flag[torch.tensor(list(res_ligand_df['chain'] == id))] = i + 1
             if '-' in item['complex_id']:
                 pf_ids.append(0)
                 break
@@ -762,7 +749,7 @@ class GNNTransformMultiTask(object):
         # 找个办法把chain和Uniprot对应起来，然后就可以查了
         if self.hetero:
             graph = hetero_graph_transform(
-                atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
+                item_name = item['complex_id'], atom_df=atom_df, super_node=self.supernode, protein_seq=item['protein_seq'], alpha_only=self.alpha_only
             )
         else:
             graph = prot_graph_transform(
@@ -835,6 +822,6 @@ class GNNTransformMultiTask(object):
             print(item['complex_id'])
             print(chain_ids)
             print(len(chain_ids), len(graph.functions))
-        graph.prot_id = item["complex_id"]
+        graph.prot_id = item["complex_id"]        
         graph.type = 'multi'
         return graph

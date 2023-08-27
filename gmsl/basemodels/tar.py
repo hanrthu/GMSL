@@ -31,8 +31,8 @@ class MultiLayerTAR(nn.Module):
         hidden_states = task_prompt
         for i in range(self.num_layers):
              hidden_states = self.readout[i](hidden_states, input, index)
-        output_feature = hidden_states.permute(1, 0, 2)
-        return output_feature
+        # output_feature = hidden_states.permute(1, 0, 2)
+        return hidden_states
     
 class TaskAwareReadout(nn.Module):
     def __init__(self, in_features, hidden_size, out_features,
@@ -127,5 +127,5 @@ class TaskAwareReadout(nn.Module):
         # hidden_states = self.dropout(hidden_states)
         hidden_states = self.layernorm2(hidden_states + self.linear2(task_prompt) * context_layer)
         # task_num, batchsize(or chainsize), hidden_size
-        hidden_states = hidden_states.permute(1, 0, 2)
+        hidden_states = hidden_states.permute(1, 0, 2) # [task_num, batchsize(or chainsize), hidden_size]
         return hidden_states

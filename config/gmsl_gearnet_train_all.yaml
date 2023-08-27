@@ -30,10 +30,10 @@ num_workers: 4
 
 # Trainer Settings
 device: 
+  - 0
   - 1
-  - 2
 nruns: 3
-wandb: False
+wandb: True
 save_dir: gearnet
 gradient_clip_val: 10
 load_ckpt: null

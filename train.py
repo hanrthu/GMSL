@@ -171,7 +171,7 @@ class LBADataLightning(pl.LightningDataModule):
         return 1
 
     def prepare_data(self):
-        _ = CustomMultiTaskDataset(split='train', task=self.train_task)
+        _ = CustomMultiTaskDataset(split='train', task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only)
         return None
 
     def setup(self, stage: Optional[str] = None):
