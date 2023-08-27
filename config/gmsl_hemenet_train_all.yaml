@@ -21,7 +21,7 @@ no_feat_attn: False
 drop_last: False
 run_name: hemenet
 train_task: multi
-train_split: train
+train_split: train_all
 val_split: val
 test_split: test
 alpha_only: False
@@ -30,10 +30,10 @@ num_workers: 4
 
 # Trainer Settings
 device: 
-  - 0
-  - 1
+  - 2
+  - 3
 nruns: 3
-wandb: False
+wandb: True
 save_dir: hemenet
 gradient_clip_val: 10
 load_ckpt: null

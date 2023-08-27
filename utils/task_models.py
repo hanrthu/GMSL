@@ -209,7 +209,11 @@ class MultiTaskModel(pl.LightningModule):
         for i, (property_name, class_num) in enumerate(self.property_info.items()):
             right = left + class_num
             curr_pred = y_property_pred[i]
-            curr_true = y_property_true[:, left: right]
+            curr_true = y_property_true[:, left: right] # to avoid that there are only on element in prediction
+            if len(curr_pred.shape) == 1:
+                curr_pred = curr_pred.unsqueeze(0)
+            if len(curr_true.shape) == 1:
+                curr_true = curr_true.unsqeeze(0)
             curr_mask = y_property_mask[:, i]
             # print("Property Before:", property_name, curr_pred.shape, curr_true.shape, curr_mask.shape)
             curr_pred = curr_pred[curr_mask == 1]

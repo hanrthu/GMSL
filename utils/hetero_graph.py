@@ -54,6 +54,12 @@ def gen_multi_channel_coords(protein_df, ligand_df, protein_seq):
     mask_protein = torch.zeros(X_protein.shape[:-1])
     current_channel = 0
     for i, item in enumerate(res_info):
+        # Cut the residues that have more than 14 atoms
+        if current_channel == 14 and i < len(res_info) - 1 and res_info[i] == res_info[i+1]:
+            continue
+        elif current_channel == 14:
+            current_channel = 0
+            continue
         X_protein[int(item), current_channel, :] = protein_pos[i]
         element_protein[int(item), current_channel] = protein_element[i]
         mask_protein[int(item), current_channel] = 1
