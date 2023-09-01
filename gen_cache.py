@@ -84,8 +84,8 @@ def test_func(item:str,label:str,split:str="train",cache_dir:str="./datasets/Enz
                                     'atoms_protein': protein_df, 'protein_seq': protein_seq, 'atoms_ligand':None}
     processed_complexes.append(processed_complex)
     print("processed_complex:",processed_complex)
-def gen_cache_for_ec_new(labels:dict,split:str="train",cache_dir:str="./datasets/EnzymeCommissionNew/train.cache",remove_hoh:bool=True,remove_hydrogen:bool=False):
-    file_path = "./datasets/EnzymeCommissionNew/nrPDB-EC_{}.txt".format(split)
+def gen_cache_for_reaction(labels:dict,split:str="train",cache_dir:str="./datasets/ProtFunc/train.cache",remove_hoh:bool=True,remove_hydrogen:bool=False):
+    file_path = "./datasets/ProtFunc/{}.txt".format(split)
     file = open(file_path, "r")
     success_count = 0
     processed_complexes = []
@@ -273,10 +273,10 @@ def gen_cache_for_fold(labels,split:str="training",cache_dir:str="./datasets/Hom
     print("succ times:",succ)
 if __name__ == "__main__":
     # test_func("4QW3-K","fake label")
-    # with open("./datasets/EnzymeCommissionNew/uniformed_labels.json", 'r') as f:
-    #     labels = json.load(f)  
-    # for split in ["train","test","val"]:
-    #     gen_cache_for_ec_new(labels,split,"./datasets/EnzymeCommissionNew/{}.cache".format(split))
-    labels = gen_label_for_fold()
-    for split in ["train","test_fold","test","test_superfamily","val"]:
-        gen_cache_for_fold(labels,split,"./datasets/HomologyTAPE/"+split+".cache")
+    with open("./datasets/ProtFunc/uniformed_labels.json", 'r') as f:
+        labels = json.load(f)  
+    for split in ["train","test","val"]:
+        gen_cache_for_reaction(labels,split,"./datasets/ProtFunc/{}.cache".format(split))
+    # labels = gen_label_for_fold()
+    # for split in ["train","test_fold","test","test_superfamily","val"]:
+    #     gen_cache_for_fold(labels,split,"./datasets/HomologyTAPE/"+split+".cache")

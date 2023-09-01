@@ -16,7 +16,32 @@ def cal_complex_all(json_dirs):
                 id = i.split('-')[0].lower()
             complex_list.append(id)
     print(len(list(set(complex_list))))
-        
+
+def gen_train_test_ids_new(complex_dict,ec_dict,go_dict,reaction_dict):
+    train_list = []
+    # print(complex_dict)
+    all_list = []
+    for k, v in complex_dict.items():
+        all_list.extend(v) # k is uniprot id v is pdb ids
+    all_list = list(set(all_list))
+    for k, v in complex_dict.items():
+        # print(k, v)
+        # 由于每个蛋白可能有多个Uniprot，可以根据某一个Uniprot不在的情况找出训练集的样本
+        if k not in ec_dict or k not in go_dict or k not in reaction_dict:
+            train_list.extend(v) # train_list:哪些pdb_id中有uniprot缺少ec或者go标注
+    #取反即可获得标注完整的数据集
+    test_list = [i for i in all_list if i not in train_list] # test_list:哪些pdb_id中所有uniprot有完整的ec和go标注
+    test_uniprots = []
+    for k, v in complex_dict.items():
+        for id in v:
+            if id in test_list and k not in test_uniprots:
+                test_uniprots.append(k)
+    # print("Uniprots:", len(test_uniprots))
+    # print("Train:", len(train_list), len(list(set(train_list))))
+    # print("Test:", len(test_list), len(list(set(test_list))))
+    # print("All:", len(list(set(test_list + train_list))))
+    # print(list(set(train_list)))
+    return list(set(train_list)), list(set(test_list)), list(set(test_uniprots))        
 
 def gen_train_test_ids(complex_dict, ec_dict, go_dict):
     train_list = []
@@ -76,6 +101,23 @@ def gen_protein_property_uniprots(json_dir: str, single=True):
                         uniprot_dict[uniprot_id].append(k)
     # print("Unitest:", len(uniprot_dict), len(info_dict_new))
     return uniprot_dict, info_dict_new
+
+def gen_reaction_uniprots():
+    "生成uniprot_dict, info_dict"
+    input_json_dir = "./output_info/enzyme_commission_new_uniprots.json"
+    output_json_dir = "./output_info/reaction_uniprots.json"
+    all_uniprots_dict = json.load(open(input_json_dir))
+    new_uniprots_dict = {}
+    chain_function_file = open('./datasets/ProtFunc/chain_functions.txt','r')
+    for line in chain_function_file.readlines():
+        pdbid = line.split(',')[0]
+        pdbid = pdbid.replace('.','-').upper()
+        try:
+            new_uniprots_dict[pdbid] = all_uniprots_dict[pdbid]
+        except:
+            print("{} not found".format(pdbid))
+    json.dump(new_uniprots_dict,open(output_json_dir,'w'))
+    return gen_protein_property_uniprots(output_json_dir)
     
 def save_dataset_info(dir, complex_list):
     with open(dir, 'w') as f:
@@ -84,7 +126,7 @@ def save_dataset_info(dir, complex_list):
         f.close()
 
 def gen_ec_labels():
-    root_dir = './datasets/EnzymeCommissionNew/nrPDB-EC_annot.tsv'
+    root_dir = './datasets/EnzymeCommission/nrPDB-EC_annot.tsv'
     with open(root_dir, 'r') as f:
         lines = f.readlines()
     ec_classes = lines[1].strip().split('\t')
@@ -101,7 +143,33 @@ def gen_ec_labels():
         pdb_annot_dict[pdb_id] = [label_dict[annot] for annot in annotations_list]
     return pdb_annot_dict
     # print("Number of classes in task {} is {}".format('EnzymeCommission', label_id))
-
+def gen_reaction_labels():
+    root_dir = './datasets/ProtFunc/chain_functions.txt'
+    pdb_uniprot_dict = json.load(open('./output_info/reaction_uniprots.json'))
+    f = open(root_dir)
+    lines = f.readlines()
+    pdb_annot_dict = {}
+    for line in lines:
+        pdbid,label = line.split(',')
+        pdbid = pdbid.replace('.','-').upper()
+        if(pdbid in pdb_uniprot_dict.keys()):
+            uniprot_ids = pdb_uniprot_dict[pdbid]
+            pdb_annot_dict[pdbid] = [int(label.strip('\n'))]
+    return pdb_annot_dict
+def process_reaction_labels():
+    "生成reaction单任务对应的uniformed_labels.json"
+    root_dir = './datasets/ProtFunc/chain_functions.txt'
+    pdb_uniprot_dict = json.load(open('./output_info/reaction_uniprots.json'))
+    f = open(root_dir)
+    lines = f.readlines()
+    pdb_annot_dict = {}
+    for line in lines:
+        chain,label = line.split(',')
+        chain = chain.replace('.','-').upper()
+        if(chain in pdb_uniprot_dict.keys()):
+            uniprot_ids = pdb_uniprot_dict[chain]
+            pdb_annot_dict[chain] = {"uniprots":uniprot_ids,",ec":[-1],"reaction":[[int(label.strip('\n'))]],"go":[-1],"ppi":-1,"lba":-1}
+    json.dump(pdb_annot_dict,open('./datasets/ProtFunc/uniformed_labels.json','w'))
 # def get_full_annotation(go_uniprot_dict):
 #     root_dir = './datasets/GeneOntology/nrPDB-GO_annot.tsv'
 #     with open(root_dir, 'r') as f:
@@ -185,6 +253,63 @@ def gen_ppi_labels():
         res[code] = pp_info['pKd pKi pIC50'][i]
     # print("PPI:", len(res))
     return res
+
+def gen_label_new(pdb_ids, ec_labels, go_labels,reaction_labels, ppi_labels, lba_labels, ec_uniprot_dict, go_uniprot_dict,reaction_uniprot_dict, ec_info_dict, go_info_dict,reaction_info_dict, pp_info_dict, pl_info_dict):
+    uniform_labels = {}
+    for pdb_id in pdb_ids:
+        if '-' in pdb_id:
+            if pdb_id in ec_labels:
+                uniprots = ec_info_dict[pdb_id]
+                single_ec_label = [ec_labels[pdb_id]]
+            else:
+                single_ec_label = [-1]
+            if pdb_id in go_labels:
+                uniprots = go_info_dict[pdb_id]
+                single_go_label = [go_labels[pdb_id]]
+            else:
+                single_go_label = [-1]
+            if pdb_id in reaction_labels and pdb_id in reaction_info_dict:
+                uniprots = reaction_info_dict[pdb_id] 
+                single_reaction_label = [reaction_labels[pdb_id]]
+            else:
+                single_reaction_label = [-1]
+                
+        else:
+            single_ec_label = []
+            single_go_label = []
+            single_reaction_label = []
+            if pdb_id in pp_info_dict:
+                uniprots = pp_info_dict[pdb_id]
+            elif pdb_id in pl_info_dict:
+                uniprots = pl_info_dict[pdb_id]
+            else:
+                raise NotImplementedError
+            for uniprot_id in uniprots:
+                if uniprot_id in ec_uniprot_dict:
+                    ec_label = ec_labels[ec_uniprot_dict[uniprot_id]]
+                else:
+                    ec_label = -1
+                if uniprot_id in go_uniprot_dict:
+                    go_label = go_labels[go_uniprot_dict[uniprot_id]]
+                else:
+                    go_label = -1
+                if uniprot_id in reaction_uniprot_dict:
+                    reaction_label = reaction_labels[reaction_uniprot_dict[uniprot_id]]
+                else:
+                    reaction_label = -1
+                single_ec_label.append(ec_label)
+                single_go_label.append(go_label)
+                single_reaction_label.append(reaction_label)
+        if pdb_id in ppi_labels:
+            ppi_label = ppi_labels[pdb_id]
+        else:
+            ppi_label = -1
+        if pdb_id in lba_labels:
+            lba_label = lba_labels[pdb_id]
+        else:
+            lba_label = -1
+        uniform_labels[pdb_id] = {"uniprots":uniprots, "ec": single_ec_label, "go": single_go_label, "reaction":single_reaction_label,"ppi": ppi_label, "lba": lba_label}
+    return uniform_labels
 
 def gen_label(pdb_ids, ec_labels, go_labels, ppi_labels, lba_labels, ec_uniprot_dict, go_uniprot_dict, ec_info_dict, go_info_dict, pp_info_dict, pl_info_dict):
     uniform_labels = {}
@@ -285,14 +410,17 @@ def process_multi_data():
     go_uniprot_dict, go_info_dict = gen_protein_property_uniprots(json_dirs[1])
     pp_uniprot_dict, pp_info_dict = gen_protein_property_uniprots(json_dirs[2], single=False)
     pl_uniprot_dict, pl_info_dict = gen_protein_property_uniprots(json_dirs[3], single=False)
-    print("Number of samples pl, pp, ec, go:", len(pl_info_dict), len(pp_info_dict), len(ec_info_dict), len(go_info_dict))
+    reaction_uniprot_dict,reaction_info_dict = gen_reaction_uniprots()
+    
+    print("Number of samples pl, pp, ec, go,reaction:", len(pl_info_dict), len(pp_info_dict), len(ec_info_dict), len(go_info_dict),len(reaction_info_dict))
     ec_labels = gen_ec_labels()
     go_labels, go_full_uniprot_dict = gen_go_labels(go_uniprot_dict)
     ppi_labels = gen_ppi_labels()
     lba_labels = gen_lba_labels()
+    reaction_labels = gen_reaction_labels()
     # print(len(ec_uniprot_dict), len(go_uniprot_dict), len(pp_uniprot_dict), len(pl_uniprot_dict))
-    train_list_pp, test_list_pp, test_uniprots_1 = gen_train_test_ids(pp_uniprot_dict, ec_uniprot_dict, go_full_uniprot_dict)
-    train_list_pl, test_list_pl, test_uniprots_2 = gen_train_test_ids(pl_uniprot_dict, ec_uniprot_dict, go_full_uniprot_dict)
+    train_list_pp, test_list_pp, test_uniprots_1 = gen_train_test_ids_new(pp_uniprot_dict, ec_uniprot_dict, go_full_uniprot_dict,reaction_dict=reaction_uniprot_dict)
+    train_list_pl, test_list_pl, test_uniprots_2 = gen_train_test_ids_new(pl_uniprot_dict, ec_uniprot_dict, go_full_uniprot_dict,reaction_dict=reaction_uniprot_dict)
     test_list_all = list(set(test_list_pl + test_list_pp))
     test_uniprots_all = list(set(test_uniprots_1 + test_uniprots_2))
     
@@ -308,35 +436,40 @@ def process_multi_data():
 
     train_list_ec = [ec_uniprot_dict[i] for i in ec_uniprot_dict if i not in test_uniprots_all]
     train_list_go = [go_uniprot_dict[i] for i in go_uniprot_dict if i not in test_uniprots_all]
-    print("Train List:", len(train_list_ec), len(train_list_go))
+    train_list_reaction = [reaction_uniprot_dict[i] for i in reaction_uniprot_dict if i not in test_uniprots_all]
+    
+    
     # train_list_pl:有pl label但是ec或者go缺点啥的pdb id训练集
     # train_list_pp:有pp label但是ec或者go缺点啥的训练集
     # train_list_ec:有ec但是没有go的训练集
     # train_list_go:有go但是没有ec的训练集
-    train_list_all = list(set(train_list_pl + train_list_pp + train_list_ec + train_list_go + full_train_list))
+    train_list_all = list(set(train_list_pl + train_list_pp + train_list_ec + train_list_go +train_list_reaction+ full_train_list))
+    print("Train List:", len(train_list_ec), len(train_list_go),len(train_list_reaction),len(train_list_all))
     # train/val/test.txt contains samples of full labels, while train_all.txt contains labals with partial labels and samples in train.txt.
-    print("Process finished, saving information into ./dataset/MultiTask/")
-    if os.path.exists('./datasets/MultiTask/train_all.txt') and os.path.exists('./datasets/MultiTask/tmp/train.txt'):
+    print("Process finished, saving information into ./dataset/MultiTaskNew/")
+    if os.path.exists('./datasets/MultiTaskNew/train_all.txt') and os.path.exists('./datasets/MultiTask/tmp/train.txt'):
         print("File already exists, skip saving split information...")
     else:
         print("Saving split information...")
-        os.makedirs('./datasets/MultiTask', exist_ok=True)
-        save_dataset_info('./datasets/MultiTask/train_all.txt', train_list_all)
-        save_dataset_info('./datasets/MultiTask/train.txt', full_train_list)
-        save_dataset_info('./datasets/MultiTask/val.txt', full_val_list)
-        save_dataset_info('./datasets/MultiTask/test.txt', full_test_list)
+        os.makedirs('./datasets/MultiTaskNew', exist_ok=True)
+        save_dataset_info('./datasets/MultiTaskNew/train_all.txt', train_list_all)
+        save_dataset_info('./datasets/MultiTaskNew/train.txt', full_train_list)
+        save_dataset_info('./datasets/MultiTaskNew/val.txt', full_val_list)
+        save_dataset_info('./datasets/MultiTaskNew/test.txt', full_test_list)
 
-    uniformed_label_dict = gen_label(train_list_all+full_test_list+full_val_list, ec_labels, go_labels, ppi_labels, lba_labels, ec_uniprot_dict, go_uniprot_dict, ec_info_dict, go_info_dict, pp_info_dict, pl_info_dict)    
+    # uniformed_label_dict = gen_label(train_list_all+full_test_list+full_val_list, ec_labels, go_labels, ppi_labels, lba_labels, ec_uniprot_dict, go_uniprot_dict, ec_info_dict, go_info_dict, pp_info_dict, pl_info_dict)    
+    uniformed_label_dict = gen_label_new(train_list_all+full_test_list+full_val_list,ec_labels, go_labels,reaction_labels,ppi_labels, lba_labels,ec_uniprot_dict, go_uniprot_dict,reaction_uniprot_dict,ec_info_dict,go_info_dict,reaction_info_dict,pp_info_dict,pl_info_dict)
     print("An example of the processed unified label:\n", full_test_list[0], ": ", uniformed_label_dict[full_test_list[0]])
-    if os.path.exists('./datasets/MultiTask/uniformed_labels.json'):
+    if os.path.exists('./datasets/MultiTaskNew/uniformed_labels.json'):
         print("File already exists, skip saving uniformed labels...")
     else:
         print('Generating uniformed labels...')
-        with open('./datasets/MultiTask/uniformed_labels.json', 'w') as f:
+        with open('./datasets/MultiTaskNew/uniformed_labels.json', 'w') as f:
             json.dump(uniformed_label_dict, f)
         
 if __name__ == '__main__':
     
-    # process_multi_data()
+    process_multi_data()
     # process_ppi_data()
-    process_ec_data()
+    # process_ec_data()
+    # gen_reaction_labels()

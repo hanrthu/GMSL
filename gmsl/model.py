@@ -176,7 +176,7 @@ class BaseModel(nn.Module):
                 self.affinity_heads.append(lba)
                 self.affinity_heads.append(ppi)
         if self.task == 'ec':
-            class_nums = [640]
+            class_nums = [538]
         elif self.task == 'mf':
             class_nums = [490]
         elif self.task == 'bp':
@@ -185,10 +185,10 @@ class BaseModel(nn.Module):
             class_nums = [321]
         elif self.task == 'go':
             class_nums = [490, 1944, 321]
-        elif self.task == 'fold':
-            class_nums = [1195]
+        elif self.task == 'reaction':
+            class_nums = [384]
         elif self.task == 'multi':
-            class_nums = [640, 490, 1944, 321]
+            class_nums = [538, 490, 1944, 321,384]
         else:
             class_nums = []
         # print("Class Nums:", class_nums)
@@ -271,6 +271,7 @@ class BaseModel(nn.Module):
             e = self.post_lin_e(e)
         elif self.model_type == 'gearnet':
             graph = data
+            # print("edge_relations:",graph.edge_relations)            
             graph.edge_list = torch.cat([graph.edge_index.t(), graph.edge_relations.unsqueeze(-1)], dim=-1)
             # print("Graph Edge List:", graph.edge_list.shape)
             input_data = data.x
@@ -299,15 +300,16 @@ class BaseModel(nn.Module):
                 # 将链从1编号改为从0编号
                 chain_pred = scatter(s[(lig_flag!=0).squeeze(), :], index=(chains-1).squeeze(), dim=0, reduce=self.graph_pooling)
             elif self.readout == 'weighted_feature':
-                print("Shape:", self.task_weights.shape, s.shape)
+                
                 y_pred = scatter(s * self.affinity_weights, index=batch, dim=1, reduce=self.graph_pooling)
                 chain_pred = scatter(s[(lig_flag!=0).squeeze(), :] * self.property_weights, index=(chains-1).squeeze(), dim=1, reduce=self.graph_pooling)
-                # print("After", y_pred.shape, chain_pred.shape)
+                # print("After",chain_pred.shape)
                 if self.task == 'multi':
                     affinity_pred = [affinity_head(y_pred[i].squeeze()) for i, affinity_head in enumerate(self.affinity_heads)]
                     property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
+                    # print(property_pred[4])
                     return affinity_pred, property_pred
-                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc','fold']:
+                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc','reaction']:
                     property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
                     return property_pred
                 elif self.task in ['lba', 'ppi']:
@@ -344,7 +346,7 @@ class BaseModel(nn.Module):
             affinity_pred = [affinity_head(y_pred) for affinity_head in self.affinity_heads]
             property_pred = [property_head(chain_pred) for property_head in self.property_heads]
             return affinity_pred, property_pred
-        elif self.task in ['ec', 'go', 'mf', 'bp', 'cc','fold']:
+        elif self.task in ['ec', 'go', 'mf', 'bp', 'cc','reaction']:
             property_pred = [property_head(chain_pred) for property_head in self.property_heads]
             # print("property pred:",property_pred)
             # print("property pred shape:",property_pred.shape)

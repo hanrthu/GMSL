@@ -231,7 +231,7 @@ def choose_monitor(task):
     elif task in ['ppi','lba']:
         monitor = 'val_loss'
         mode = 'min'
-    elif task in ['bp', 'mf', 'cc', 'go', 'ec','fold']:
+    elif task in ['bp', 'mf', 'cc', 'go', 'ec','reaction']:
         monitor = 'val_fmax_all'
         mode = 'max'
     return monitor, mode
@@ -337,7 +337,7 @@ if __name__ == "__main__":
             f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
         )
         model_cls = MultiTaskModel
-    elif args.train_task in ['ec', 'go', 'mf', 'bp', 'cc','fold']:
+    elif args.train_task in ['ec', 'go', 'mf', 'bp', 'cc','reaction']:
         model = PropertyModel(
             args=args,
             sdim=args.sdim,
@@ -422,7 +422,7 @@ if __name__ == "__main__":
             enhanced=args.enhanced,
             offset_strategy = args.offset_strategy,
             task=args.train_task,
-            # readout=args.readout
+            readout=args.readout
         )
         # 根据不同任务设置选择最优模型的方法
         monitor, mode = choose_monitor(args.train_task)

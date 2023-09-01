@@ -49,11 +49,11 @@ class MultiTaskModel(pl.LightningModule):
         self.max_epochs = max_epochs
         # 4 Multilabel Binary Classification Tasks
         # 之后可以做到Config中
-        self.property_info = {'ec': 640, 'mf': 490, 'bp': 1944, 'cc': 321}
+        self.property_info = {'ec':538, 'mf': 490, 'bp': 1944, 'cc': 321,'reaction':384}
         self.affinity_info = {'lba': 1, 'ppi': 1}
         # Weight of loss for each task
         # 之后可以变成可学习的版本
-        self.property_alphas = [1, 1, 1, 1]
+        self.property_alphas = [1, 1, 1, 1,1]
         self.affinity_alphas = [1, 1]
         self.l1 = nn.L1Loss()
         self.l2 = nn.MSELoss()
@@ -199,6 +199,9 @@ class MultiTaskModel(pl.LightningModule):
             curr_pred = curr_pred[curr_mask == 1]
             curr_true = curr_true[curr_mask == 1]
             # print("Affinity After:", affinity_name, curr_pred.shape, curr_true.shape)
+            # print("curr_pred:",curr_pred)
+            # print("curr true:",curr_true)
+            # print("curr mask:",curr_mask)
             y_affinity_preds.append(curr_pred)
             y_affinity_trues.append(curr_true)
 
@@ -207,6 +210,7 @@ class MultiTaskModel(pl.LightningModule):
         y_property_preds = []
         y_property_trues = []
         for i, (property_name, class_num) in enumerate(self.property_info.items()):
+            # print("i:",i)
             right = left + class_num
             curr_pred = y_property_pred[i]
             curr_true = y_property_true[:, left: right]
@@ -214,7 +218,6 @@ class MultiTaskModel(pl.LightningModule):
             # print("Property Before:", property_name, curr_pred.shape, curr_true.shape, curr_mask.shape)
             curr_pred = curr_pred[curr_mask == 1]
             curr_true = curr_true[curr_mask == 1]
-            # print("Property After:", property_name, curr_pred.shape, curr_true.shape)
             y_property_preds.append(curr_pred)
             y_property_trues.append(curr_true)
             left = right
@@ -365,7 +368,21 @@ class MultiTaskModel(pl.LightningModule):
             self.log(log_fmax, round(f_max, 4), on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
             # valid_res[log_bce] = round(bce_loss, 4)
             valid_res[log_fmax] = round(f_max, 4)
-            
+        
+        # 计算reaction的acc
+        property_pred = torch.concat([x["property_pred"][-1] for x in self.validation_step_outputs])
+        property_true = torch.concat([x["property_true"][-1] for x in self.validation_step_outputs])
+        predicted = torch.argmax(property_pred,dim=1)
+        labels = torch.argmax(property_true,dim=1)
+        print("labels:",labels)
+        correct = (predicted==labels).sum().item()
+        total = labels.size(0)
+        acc = correct / total
+        # print("acc:{},total:{}".format(acc,total))
+        self.log("val_acc_reaction", round(acc,4),on_step=False,on_epoch=True,prog_bar=False, sync_dist=True)
+        valid_res["val_acc_reaction"] = round(acc,4)
+        
+        
         val_loss = l2_losses + 10 * bce_losses
         valid_res['val_loss'] = val_loss
         valid_res['epoch'] = self.current_epoch
@@ -736,7 +753,7 @@ class PropertyModel(pl.LightningModule):
         fs = []
         # print("Thres:", thresholds)
         if self.task == 'ec':
-            classes = [640]
+            classes = [538]
         elif self.task == 'go':
             classes = [490, 1944, 321]
         elif self.task == 'mf':
@@ -745,8 +762,8 @@ class PropertyModel(pl.LightningModule):
             classes = [1944]
         elif self.task == 'cc':
             classes = [321]
-        elif self.task == 'fold':
-            classes = [1195]
+        elif self.task == 'reaction':
+            classes = [384]
         for thres in thresholds:
             y_pred = torch.zeros(preds.shape).to(preds.device)
             y_pred[preds>=thres] = 1
@@ -787,7 +804,7 @@ class PropertyModel(pl.LightningModule):
         fs = torch.tensor(fs)
         f_max = torch.max(fs, dim=0)[0]
         # print(f_max)
-        if self.task in ['ec', 'mf', 'bp', 'cc','fold']:
+        if self.task in ['ec', 'mf', 'bp', 'cc','reaction']:
             return f_max[0].item()
         elif self.task == 'go':
             return f_max[0].item(), f_max[1].item(), f_max[2].item(), f_max[3].item()
@@ -866,7 +883,15 @@ class PropertyModel(pl.LightningModule):
         property_pred = torch.concat([x["property_pred"] for x in self.validation_step_outputs])
         property_true = torch.concat([x["property_true"] for x in self.validation_step_outputs])
         bce_loss = self.bce(property_pred, property_true)
-        if self.task in ['ec', 'bp', 'mf', 'cc','fold']:
+        if  self.task== "reaction":
+            # 计算acc
+            predicted = torch.argmax(property_pred,dim=1)
+            labels = torch.argmax(property_true,dim=1)
+            correct = (predicted==labels).sum().item()
+            total = labels.size(0)
+            acc = correct / total
+            print("acc:{},total:{}".format(acc,total))
+        if self.task in ['ec', 'bp', 'mf', 'cc','reaction']:
             fmax_all = self.cal_fmax(property_pred, property_true)
             val_loss = 10 * bce_loss
             to_print = (
@@ -902,7 +927,7 @@ class PropertyModel(pl.LightningModule):
     def on_test_epoch_end(self):
         property_pred = torch.concat([x["property_pred"] for x in self.test_step_outputs])
         property_true = torch.concat([x["property_true"] for x in self.test_step_outputs])
-        if self.task in ['ec', 'bp', 'mf', 'cc','fold']:
+        if self.task in ['ec', 'bp', 'mf', 'cc','reaction']:
             fmax_all = self.cal_fmax(property_pred, property_true)
             to_print = (
             f"{self.current_epoch:<10}: "
