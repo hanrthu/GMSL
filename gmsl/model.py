@@ -176,24 +176,28 @@ class BaseModel(nn.Module):
                 self.affinity_heads.append(lba)
                 self.affinity_heads.append(ppi)
         if self.task == 'ec':
-            # class_nums = [538]
-            class_nums = [3615]
+            class_nums = [538]
+            # class_nums = [3615]
         elif self.task == 'mf':
-            # class_nums = [490]
-            class_nums = [5348]
+            class_nums = [490]
+            # class_nums = [5348]
         elif self.task == 'bp':
-            # class_nums = [1944]
-            class_nums = [10285]
+            class_nums = [1944]
+            # class_nums = [10285]
         elif self.task == 'cc':
-            # class_nums = [321]
-            class_nums = [1901]
+            class_nums = [321]
+            # class_nums = [1901]
         elif self.task == 'go':
-            # class_nums = [490, 1944, 321]
-            class_nums = [5348, 10285, 1901]
+            class_nums = [490, 1944, 321]
+            # class_nums = [5348, 10285, 1901]
+        elif self.task == 'reaction':
+            class_nums = [384]
+        elif self.task == 'fold':
+            class_nums = [1195]
         elif self.task == 'multi':
-            # class_nums = [538, 490, 1944, 321]
+            class_nums = [538, 490, 1944, 321, 384, 1195]
             # class_nums = [3615, 490, 1944, 321]
-            class_nums = [3615, 5348, 10285, 1901]
+            # class_nums = [3615, 5348, 10285, 1901]
         else:
             class_nums = []
         # print("Class Nums:", class_nums)
@@ -297,6 +301,7 @@ class BaseModel(nn.Module):
                 # 将链从1编号改为从0编号
                 chain_pred = scatter(s[(lig_flag!=0).squeeze(), :], index=(chains-1).squeeze(), dim=0, reduce=self.graph_pooling)
             elif self.readout == 'weighted_feature':
+                print('weighted feature')
                 # print("Shape:", self.task_weights.shape, s.shape)
                 y_pred = scatter(s * self.affinity_weights, index=batch, dim=1, reduce=self.graph_pooling)
                 chain_pred = scatter(s[(lig_flag!=0).squeeze(), :] * self.property_weights, index=(chains-1).squeeze(), dim=1, reduce=self.graph_pooling)
@@ -305,7 +310,7 @@ class BaseModel(nn.Module):
                     affinity_pred = [affinity_head(y_pred[i].squeeze()) for i, affinity_head in enumerate(self.affinity_heads)]
                     property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
                     return affinity_pred, property_pred
-                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
+                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc', 'reaction', 'fold']:
                     property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
                     return property_pred
                 elif self.task in ['lba', 'ppi', 'affinity']:
@@ -336,7 +341,7 @@ class BaseModel(nn.Module):
             affinity_pred = [affinity_head(y_pred) for affinity_head in self.affinity_heads]
             property_pred = [property_head(chain_pred) for property_head in self.property_heads]
             return affinity_pred, property_pred
-        elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
+        elif self.task in ['ec', 'go', 'mf', 'bp', 'cc', 'reaction', 'fold']:
             property_pred = [property_head(chain_pred) for property_head in self.property_heads]
             return property_pred
         elif self.task in ['lba', 'ppi', 'affinity']:

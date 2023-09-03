@@ -179,6 +179,9 @@ class LBADataLightning(pl.LightningDataModule):
         r_d = './datasets/MultiTask'
         if self.train_task == 'go':
             r_d = './datasets/MultiTask_go'
+        elif self.train_task == 'reaction' or self.train_task == 'multi':
+            print("reaction task")
+            r_d = './datasets/MultiTaskNew'
         self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json')
         self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json')
         self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json')
@@ -234,7 +237,7 @@ def choose_monitor(task):
     elif task in ['affinity', 'lba', 'ppi']:
         monitor = 'val_loss'
         mode = 'min'
-    elif task in ['bp', 'mf', 'cc', 'go', 'ec']:
+    elif task in ['bp', 'mf', 'cc', 'go', 'ec', 'reaction']:
         monitor = 'val_fmax_all'
         mode = 'max'
     return monitor, mode
@@ -340,7 +343,7 @@ if __name__ == "__main__":
             f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
         )
         model_cls = MultiTaskModel
-    elif args.train_task in ['ec', 'go', 'mf', 'bp', 'cc']:
+    elif args.train_task in ['ec', 'go', 'mf', 'bp', 'cc', 'reaction']:
         model = PropertyModel(
             args=args,
             sdim=args.sdim,

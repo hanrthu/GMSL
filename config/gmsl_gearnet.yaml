@@ -20,7 +20,7 @@ no_feat_attn: False
 #Dataset Settings
 drop_last: False
 run_name: gearnet
-train_task: ec
+train_task: reaction
 train_split: train_all
 val_split: val
 test_split: test
@@ -30,7 +30,7 @@ num_workers: 4
 
 # Trainer Settings
 device: 
-  - 0
+  - 1
 nruns: 2
 wandb: False
 save_dir: gearnet

@@ -34,7 +34,7 @@ class CustomMultiTaskDataset(Dataset):
     The Custom MultiTask Dataset with uniform labels
     """
     def __init__(self, root_dir: str = './datasets/MultiTask', label_dir: str = './datasets/MultiTask/uniformed_labels.json',
-                remove_hoh = True, remove_hydrogen = False, cutoff = 6, split : str = 'train', task = 'multi', gearnet = False, alpha_only=False):
+                remove_hoh = True, remove_hydrogen = False, cutoff = 6, split : str = 'train', task = 'multi', gearnet = False, alpha_only=False, info_dict='./output_info/uniprot_dict_all_reaction.json'):
         super(CustomMultiTaskDataset, self).__init__(root_dir)
         print("in")
         print("in Initializing MultiTask Dataset...")
@@ -48,12 +48,15 @@ class CustomMultiTaskDataset(Dataset):
         self.gearnet = gearnet
         self.alpha_only = alpha_only
         file_dir = os.path.join(root_dir, split+'.txt')        
-        self.ec_root = './data/EnzymeCommission/all'
-        # self.ec_root = './data/EC/all'
+        # self.ec_root = './data/EnzymeCommission/all'
+        self.info_dict = info_dict
+        self.ec_root = './data/EC/all'
         # self.go_root = './data/GeneOntology/all'
         self.go_root = './data/GO/all'
         self.lba_root = './data/PDBbind/refined-set'
         self.pp_root = './data/PDBbind/PP'
+        self.reaction_root = './data/ProtFunc/all'
+        self.fold_root = './data/HomologyTAPE/all'
         with open(file_dir, 'r') as f:
             self.files = f.readlines()
             self.files = [i.strip() for i in self.files]
@@ -61,8 +64,8 @@ class CustomMultiTaskDataset(Dataset):
             print("Wrong selected split. Have to choose between ['train', 'val', 'test', 'test_all']")
             print("Exiting code")
             exit()
-        if task not in ['affinity', 'ec', 'cc', 'mf', 'bp', 'multi', 'go', 'lba', 'ppi']:
-            print("Wrong selected task. Have to choose between ['affinity', 'ec', 'cc', 'mf', 'bp', 'multi', 'go']")
+        if task not in ['affinity', 'ec', 'cc', 'mf', 'bp', 'multi', 'go', 'lba', 'ppi', 'reaction', 'fold']:
+            print("Wrong selected task. Have to choose between ['affinity', 'ec', 'cc', 'mf', 'bp', 'multi', 'go', 'reaction', 'fold']")
             print("Exiting code")
             exit()
         self.split = split
@@ -73,6 +76,8 @@ class CustomMultiTaskDataset(Dataset):
         self.go_files = os.listdir(self.go_root)
         self.lba_files = os.listdir(self.lba_root)
         self.pp_files = os.listdir(self.pp_root)
+        self.reaction_files = os.listdir(self.reaction_root)
+        self.fold_files = os.listdir(self.fold_root)
         pdb_files = os.listdir('./data/EC/all')
         if '-' in item:
             if item +'.pdb' in self.ec_files:
@@ -91,6 +96,12 @@ class CustomMultiTaskDataset(Dataset):
                 return os.path.join('./data/EC/all', item.split('-')[0] +'.pdb.gz'), -1
             elif item.split('-')[0] +'.pdb' in pdb_files:
                 return os.path.join('./data/EC/all', item.split('-')[0] +'.pdb'), -1
+            elif item.split('-')[0]+'.pdb' in self.reaction_files:
+                return os.path.join(self.reaction_root, item.split('-')[0]+'.pdb'), 0
+            elif item.split('-')[0] +'.pdb.gz' in self.fold_files:
+                return os.path.join(self.fold_root, item.split('-')[0] +'.pdb.gz'), -1
+            elif item.split('-')[0] +'.pdb' in self.fold_files:
+                return os.path.join(self.fold_root, item.split('-')[0] +'.pdb'), -1
         else:
             if item + '.ent.pdb' in self.pp_files:
                 return os.path.join(self.pp_root, item+'.ent.pdb'), -1
@@ -137,7 +148,7 @@ class CustomMultiTaskDataset(Dataset):
             count = 0
             for score_idx, item in enumerate(tqdm(self.files)):
                 structure_dir, ligand_dir = self.find_structure(item)
-                if ligand_dir != -1:
+                if ligand_dir != -1 and ligand_dir != 0:
                     ligand = next(pybel.readfile('mol2', ligand_dir))
                     ligand_coords = [atom.coords for atom in ligand]
                     atom_map_lig = [atomic_num_dict(atom.atomicnum) for atom in ligand]
@@ -153,7 +164,7 @@ class CustomMultiTaskDataset(Dataset):
                 try:
                     if '-' in structure_dir:
                         file_is_chain = True
-                    if '.gz' in structure_dir:
+                    if '.gz' in structure_dir or ligand_dir == 0:
                         if '-' in item:
                             pdb_id, chain_id = item.split('-')
                             file_is_chain = False
@@ -292,7 +303,7 @@ class CustomMultiTaskDataset(Dataset):
             return True
     def check_dataset(self):
         print("Checking the dataset...")
-        info_root = './output_info/uniprot_dict_all_go.json'
+        info_root = self.info_dict
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
         thres = self.cal_length_thres(self.processed_complexes)
@@ -333,6 +344,8 @@ class CustomMultiTaskDataset(Dataset):
                     annot_number = len(labels['uniprots'])
                     for j in range(annot_number):
                         labels['go'][j] = -1
+                        labels['reaction'][j] = -1
+                        labels['fold'][j] = -1
                     item['labels'] = labels
                     new_complexes.append(item)
             self.processed_complexes = new_complexes
@@ -353,6 +366,8 @@ class CustomMultiTaskDataset(Dataset):
                     annot_number = len(labels['uniprots'])
                     for j in range(annot_number):
                         labels['ec'][j] = -1
+                        labels['reaction'][j] = -1
+                        labels['fold'][j] = -1
                     item['labels'] = labels
                     new_complexes.append(item)
             self.processed_complexes = new_complexes
@@ -375,11 +390,33 @@ class CustomMultiTaskDataset(Dataset):
                     for j in range(annot_number):
                         labels['ec'][j] = -1
                         labels['go'][j] = -1
+                        labels['reaction'][j] = -1
+                        labels['fold'][j] = -1
                     item['labels'] = labels
                     new_complexes.append(item)
             self.processed_complexes = new_complexes
             # print(new_complexes)
             self.transform_func = GNNTransformAffinity(task=self.task, gearnet=self.gearnet)
+        elif self.task == "reaction":
+            print("Using Reaction {} Dataset for training:".format(self.split))
+            # root_dir = './output_info/gene_ontology_uniprots.json'
+            root_dir = './output_info/reaction_uniprots.json'
+            print("now")
+            with open(root_dir, 'r') as f:
+                info_dict = json.load(f)
+            new_complexes = []
+            print("ok")
+            for item in self.processed_complexes:
+                if item['complex_id'] in info_dict or item['complex_id'] in extra_info:
+                    labels = item['labels']
+                    annot_number = len(labels['uniprots'])
+                    for j in range(annot_number):
+                        labels['ec'][j] = -1
+                        labels['go'][j] = -1
+                    item['labels'] = labels
+                    new_complexes.append(item)
+            self.processed_complexes = new_complexes
+            self.transform_func = GNNTransformReaction(task=self.task,gearnet=self.gearnet)
         else:
             self.transform_func = GNNTransformMultiTask(gearnet=self.gearnet)
     def len(self):
@@ -387,6 +424,129 @@ class CustomMultiTaskDataset(Dataset):
     def get(self, idx):
         # print(type(self.processed_complexes))
         return self.transform_func(self.processed_complexes[idx])
+
+class GNNTransformReaction(object):
+    def __init__(
+        self,
+        cutoff: float = 4.5,
+        remove_hydrogens: bool = True,
+        max_num_neighbors: int = 32,
+        supernode: bool = False,
+        offset_strategy: int = 0,
+        task='reaction', #ec
+        hetero=False,
+        alpha_only=False,
+        gearnet=False
+    ):
+        self.cutoff = cutoff
+        self.remove_hydrogens = remove_hydrogens
+        self.max_num_neighbors = max_num_neighbors
+        self.supernode = supernode
+        self.offset_strategy = offset_strategy
+        self.task = task
+        self.hetero = hetero
+        self.alpha_only=alpha_only
+        self.gearnet = gearnet
+
+    def __call__(self, item: Dict) -> MyData:
+        # # print("Using Transform EC")
+        info_root = './output_info/uniprot_dict_all_reaction.json'
+        with open(info_root, 'r') as f:
+            chain_uniprot_info = json.load(f)
+        
+        ligand_df = item["atoms_ligand"]
+        protein_df = item["atoms_protein"]
+
+        if isinstance(ligand_df, pd.DataFrame):
+            atom_df = pd.concat([protein_df, ligand_df], axis=0)
+            if self.remove_hydrogens:
+                # remove hydrogens
+                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
+            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
+            lig_flag[-len(ligand_df):] = 0
+        else:
+            atom_df = protein_df
+            if self.remove_hydrogens:
+                # remove hydrogens
+                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
+            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
+        chain_ids = list(set(protein_df['chain']))
+        uniprot_ids = []
+        labels = item["labels"]
+        pf_ids = []
+        
+        #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
+        for i, id in enumerate(chain_ids):
+            lig_flag[torch.tensor(list(atom_df['chain'] == id))] = i + 1
+            if '-' in item['complex_id']:
+                pf_ids.append(0)
+                break
+            if id in chain_uniprot_info[item['complex_id']]:
+                uniprot_id = chain_uniprot_info[item['complex_id']][id]
+                uniprot_ids.append(uniprot_id)
+                labels_uniprot = labels['uniprots']
+                if uniprot_id in labels_uniprot:
+                    for idx, u in enumerate(labels_uniprot):
+                        if uniprot_id == u:
+                            pf_ids.append(idx)
+                            break
+                else:
+                    pf_ids.append(-1)
+                    print("Error, you shouldn't come here!")
+            else:
+                pf_ids.append(-1)
+        num_classes = 384
+        if self.gearnet:
+            graph = hetero_graph_transform(
+                atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
+            )
+        else:
+            graph = prot_graph_transform(
+                atom_df=atom_df, cutoff=self.cutoff, max_num_neighbors=self.max_num_neighbors, flag=lig_flag, super_node=self.supernode, offset_strategy=self.offset_strategy
+            )
+        reaction = labels['reaction']
+        graph.functions = []
+        graph.valid_masks = []
+        for i, pf_id in enumerate(pf_ids):
+            if pf_id == -1:
+                valid_mask = torch.zeros(num_classes)
+                prop = torch.zeros(num_classes)
+                graph.functions.append(prop)
+                graph.valid_masks.append(valid_mask)
+                continue
+            valid_mask = torch.ones(num_classes)
+            annotations = []
+            reaction_annot = reaction[pf_id]
+            if reaction_annot == -1:
+                valid_mask[:] = 0
+            else:
+                annotations = reaction_annot
+                
+            prop = torch.zeros(num_classes).scatter_(0,torch.tensor(annotations),1)
+            graph.functions.append(prop)
+            graph.valid_masks.append(valid_mask)
+        try:
+            graph.functions = torch.vstack(graph.functions)
+            graph.valid_masks = torch.vstack(graph.valid_masks)
+        except:
+            print("PF ids:", pf_ids)
+            print(item['complex_id'], chain_ids, labels)
+            print(len(graph.functions))
+            print(pf_ids)
+            print(graph.functions)
+            raise RuntimeError    
+        graph.chains = lig_flag[lig_flag!=0]
+        # print(item['complex_id'])
+
+        graph.lig_flag = lig_flag
+        if len(chain_ids) != len(graph.functions):
+            print(item['complex_id'])
+            print(chain_ids)
+            print(len(chain_ids), len(graph.functions))
+        graph.prot_id = item["complex_id"]
+        graph.type = self.task
+        # print("Task Type:", graph.type)
+        return graph 
 
 class GNNTransformGO(object):
     def __init__(
@@ -409,7 +569,7 @@ class GNNTransformGO(object):
 
     def __call__(self, item: Dict) -> MyData:
         # info_root = './output_info/uniprot_dict_all_go.json'
-        info_root = './output_info/uniprot_dict_all.json'
+        info_root = './output_info/uniprot_dict_all_reaction.json'
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
         # print("Using Transform {}".format(self.task))
@@ -668,7 +828,7 @@ class GNNTransformEC(object):
 
     def __call__(self, item: Dict) -> MyData:
         # print("Using Transform EC")
-        info_root = './output_info/uniprot_dict_all_go.json'
+        info_root = './output_info/uniprot_dict_all_reaction.json'
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
         ligand_df = item["atoms_ligand"]
@@ -711,8 +871,8 @@ class GNNTransformEC(object):
                     print("Error, you shouldn't come here!")
             else:
                 pf_ids.append(-1)
-        # num_classes =538
-        num_classes = 3615
+        num_classes =538
+        # num_classes = 3615
         # num_classes = 538
         if self.gearnet:
             graph = hetero_graph_transform(
@@ -787,7 +947,7 @@ class GNNTransformMultiTask(object):
 
     def __call__(self, item: Dict) -> MyData:
         # print("Using Transform LBA")
-        info_root = './output_info/uniprot_dict_all_go.json'
+        info_root = './output_info/uniprot_dict_all_reaction.json'
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
         
@@ -833,12 +993,12 @@ class GNNTransformMultiTask(object):
                 pf_ids.append(-1)
         # ec, mf, bp, cc
         # num_classes = 538 + 490 + 1944 + 321
-        # num_classes = [538, 490, 1944, 321]
-        # total_classes = 538 + 490 + 1944 + 321
+        num_classes = [538, 490, 1944, 321, 384]
+        total_classes = 538 + 490 + 1944 + 321 + 384
         # num_classes = [3615, 490, 1944, 321]
         # total_classes = 3615 + 490 + 1944 + 321
-        num_classes = [3615, 5348, 10285, 1901]
-        total_classes = 3615 + 5348 + 10285 + 1901
+        # num_classes = [3615, 5348, 10285, 1901]
+        # total_classes = 3615 + 5348 + 10285 + 1901
         # 找个办法把chain和Uniprot对应起来，然后就可以查了
         if self.gearnet:
             graph = hetero_graph_transform(
@@ -852,6 +1012,7 @@ class GNNTransformMultiTask(object):
         ppi = labels['ppi']
         ec = labels['ec']
         go = labels['go']
+        reaction = labels['reaction']
         graph.affinities = torch.FloatTensor([lba, ppi]).unsqueeze(0)
         if lba != -1:
             graph.affinity_mask = torch.tensor([1, 0]).unsqueeze(0)
@@ -873,6 +1034,7 @@ class GNNTransformMultiTask(object):
             annotations = []
             ec_annot = ec[pf_id]
             go_annot = go[pf_id]
+            reaction_annot = reaction[pf_id]
             if ec_annot == -1:
                 valid_mask[0] = 0
             else:
@@ -882,24 +1044,29 @@ class GNNTransformMultiTask(object):
             else:
                 mf_annot = go_annot['molecular_functions'] 
                 # mf_annot = [j + 538 for j in mf_annot]
-                mf_annot = [j + 3615 for j in mf_annot]
-                # mf_annot = [j + 538 for j in mf_annot]
+                # mf_annot = [j + 3615 for j in mf_annot]
+                mf_annot = [j + 538 for j in mf_annot]
                 if len(mf_annot) == 0:
                     valid_mask[1] = 0
                 bp_annot = go_annot['biological_process']
-                # bp_annot = [j + 538 + 490 for j in bp_annot]
+                bp_annot = [j + 538 + 490 for j in bp_annot]
                 # bp_annot = [j + 3615 + 490 for j in bp_annot]
-                bp_annot = [j + 3615 + 5348 for j in bp_annot]
+                # bp_annot = [j + 3615 + 5348 for j in bp_annot]
                 if len(bp_annot) == 0:
                     valid_mask[2] = 0
                 cc_annot = go_annot['cellular_component']
-                # cc_annot = [j + 538 + 490 + 1944 for j in cc_annot]
+                cc_annot = [j + 538 + 490 + 1944 for j in cc_annot]
                 # cc_annot = [j + 3615 + 490 + 1944 for j in cc_annot]
-                cc_annot = [j + 3615 + 5348 + 10285 for j in cc_annot]
+                # cc_annot = [j + 3615 + 5348 + 10285 for j in cc_annot]
                 if len(cc_annot) == 0:
                     valid_mask[3] = 0
                 annotations = annotations + mf_annot + bp_annot + cc_annot
-                
+            if reaction_annot == -1:
+                valid_mask[4] = 0
+            else:
+                # print("reaction label valid!",reaction_annot)
+                reaction_annot = [j+538 + 490 + 1944 + 321 for j in reaction_annot]
+                annotations = annotations + reaction_annot    
             prop = torch.zeros(total_classes).scatter_(0,torch.tensor(annotations),1)
             graph.functions.append(prop)
             graph.valid_masks.append(valid_mask)

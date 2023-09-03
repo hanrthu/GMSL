@@ -3,7 +3,7 @@ from torch import cuda
 import time
 from utils.multitask_data import CustomMultiTaskDataset
 
-train_dataset = CustomMultiTaskDataset(split='train_ec', task='go', gearnet=True, alpha_only=False, root_dir = './datasets/MultiTask_go', label_dir = './datasets/MultiTask_go/uniformed_labels.json')
+train_dataset = CustomMultiTaskDataset(split='train_ec', task='reaction', gearnet=True, alpha_only=False, root_dir = './datasets/MultiTaskNew', label_dir = './datasets/MultiTaskNew/uniformed_labels.json')
 # x = torch.zeros([1,1024,1024,128*2], requires_grad=True, device='cuda:0') 
 # print(x.dtype)
 # print("1", cuda.memory_allocated()/1024**2)  
