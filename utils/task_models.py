@@ -55,7 +55,7 @@ class MultiTaskModel(pl.LightningModule):
         self.affinity_info = {'lba': 1, 'ppi': 1}
         # Weight of loss for each task
         # 之后可以变成可学习的版本
-        self.property_alphas = [1, 1, 1, 1, 1]
+        self.property_alphas = [1, 1, 1, 1, 1, 1]
         self.affinity_alphas = [1, 1]
         self.l1 = nn.L1Loss()
         self.l2 = nn.MSELoss()
