@@ -7,10 +7,10 @@ vdim: 16
 depth: 3
 model_type: gearnet
 num_radial: 32
-learning_rate: 1.0e-4
+learning_rate: 1.0e-5
 batch_accum_grad: 1
 weight_decay: 0
-max_epochs: 50
+max_epochs: 39
 enhanced: False
 readout: weighted_feature
 # 这些都是EQGAT需要的参数，之后优化掉
@@ -35,5 +35,5 @@ nruns: 3
 wandb: True
 save_dir: gearnet
 gradient_clip_val: 10
-load_ckpt: null
+load_ckpt: ./lightning_logs/kvm3tepb/checkpoints/model-epoch=37-val_eloss=0.0000.ckpt
 seed: 817

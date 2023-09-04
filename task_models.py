@@ -85,8 +85,8 @@ class MultiTaskModel(pl.LightningModule):
                                    dropout=0.0,
                                    use_norm=use_norm,
                                    aggr=aggr,
-                                   cross_ablate=args.cross_ablate,
-                                   no_feat_attn=args.no_feat_attn,
+                                #    cross_ablate=args.cross_ablate,
+                                #    no_feat_attn=args.no_feat_attn,
                                    task = task,
                                    readout=readout
                                 # protein_function_class_dims = class_dims
@@ -374,7 +374,7 @@ class MultiTaskModel(pl.LightningModule):
         property_true = torch.concat([x["property_true"][-1] for x in self.validation_step_outputs])
         predicted = torch.argmax(property_pred,dim=1)
         labels = torch.argmax(property_true,dim=1)
-        print("labels:",labels)
+        # print("labels:",labels)
         correct = (predicted==labels).sum().item()
         total = labels.size(0)
         acc = correct / total
@@ -418,6 +418,17 @@ class MultiTaskModel(pl.LightningModule):
             self.log(log_fmax, round(f_max, 4), on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
             # test_res[log_bce] = round(bce_loss, 4)
             test_res[log_fmax] = round(f_max, 4)
+        property_pred = torch.concat([x["property_pred"][-1] for x in self.test_step_outputs])
+        property_true = torch.concat([x["property_true"][-1] for x in self.test_step_outputs])
+        predicted = torch.argmax(property_pred,dim=1)
+        labels = torch.argmax(property_true,dim=1)
+        # print("labels:",labels)
+        correct = (predicted==labels).sum().item()
+        total = labels.size(0)
+        acc = correct / total
+        # print("acc:{},total:{}".format(acc,total))
+        self.log("test_acc_reaction", round(acc,4),on_step=False,on_epoch=True,prog_bar=False, sync_dist=True)
+        test_res["test_acc_reaction"] = round(acc,4)
         test_res['epoch'] = self.current_epoch
         self.res = test_res
         print("TEST:", test_res)

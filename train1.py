@@ -104,8 +104,7 @@ if __name__ == "__main__":
     model = model_cls.load_from_checkpoint(checkpoint_path=args.model_path, 
                                             hyp_path=args.hyp_path,
                                             map_location=None,
-                                            offset_strategy=args.offset_strategy,
-                                            strict=False
+                                            offset_strategy=args.offset_strategy
                                            )
     print(
         f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."

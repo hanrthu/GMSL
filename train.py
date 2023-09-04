@@ -462,7 +462,7 @@ if __name__ == "__main__":
         print(f"Training time: {time_diff}")
 
         # running test set
-        _ = trainer.test(ckpt_path="best", datamodule=datamodule)
+        _ = trainer.test( datamodule=datamodule)
         res = model.res
         run_results.append(res)
 
