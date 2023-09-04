@@ -172,19 +172,36 @@ class LBADataLightning(pl.LightningDataModule):
         return 1
 
     def prepare_data(self):
-        _ = CustomMultiTaskDataset(split='train', task=self.train_task)
-        return None
-
-    def setup(self, stage: Optional[str] = None):
         r_d = './datasets/MultiTask'
+        info_dict = './output_info/uniprot_dict_all_reaction.json'
         if self.train_task == 'go':
             r_d = './datasets/MultiTask_go'
+        elif self.train_task == 'fold':
+            print("fold task")
+            r_d = './datasets/MultiTask_new'
+            info_dict = './output_info/uniprot_dict_all_fold.json'
         elif self.train_task == 'reaction' or self.train_task == 'multi':
             print("reaction task")
             r_d = './datasets/MultiTaskNew'
-        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json')
-        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json')
-        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json')
+        _ = CustomMultiTaskDataset(split='train', task=self.train_task, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
+        return None
+
+    def setup(self, stage: Optional[str] = None):
+        print("train task: ", self.train_task)
+        r_d = './datasets/MultiTask'
+        info_dict = './output_info/uniprot_dict_all_reaction.json'
+        if self.train_task == 'go':
+            r_d = './datasets/MultiTask_go'
+        elif self.train_task == 'fold':
+            print("fold task")
+            r_d = './datasets/MultiTask_new'
+            info_dict = './output_info/uniprot_dict_all_fold.json'
+        elif self.train_task == 'reaction' or self.train_task == 'multi':
+            print("reaction task")
+            r_d = './datasets/MultiTaskNew'
+        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
+        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
+        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
 
     def train_dataloader(self, shuffle: bool = False):
         # if self.auxiliary != None:
@@ -237,7 +254,7 @@ def choose_monitor(task):
     elif task in ['affinity', 'lba', 'ppi']:
         monitor = 'val_loss'
         mode = 'min'
-    elif task in ['bp', 'mf', 'cc', 'go', 'ec', 'reaction']:
+    elif task in ['bp', 'mf', 'cc', 'go', 'ec', 'reaction', 'fold']:
         monitor = 'val_fmax_all'
         mode = 'max'
     return monitor, mode
@@ -343,7 +360,7 @@ if __name__ == "__main__":
             f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
         )
         model_cls = MultiTaskModel
-    elif args.train_task in ['ec', 'go', 'mf', 'bp', 'cc', 'reaction']:
+    elif args.train_task in ['ec', 'go', 'mf', 'bp', 'cc', 'reaction', 'fold']:
         model = PropertyModel(
             args=args,
             sdim=args.sdim,
