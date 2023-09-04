@@ -34,7 +34,7 @@ class CustomMultiTaskDataset(Dataset):
     The Custom MultiTask Dataset with uniform labels
     """
     def __init__(self, root_dir: str = './datasets/MultiTask', label_dir: str = './datasets/MultiTask/uniformed_labels.json',
-                remove_hoh = True, remove_hydrogen = False, cutoff = 6, split : str = 'train', task = 'multi', gearnet = False, alpha_only=False, info_dict='./output_info/uniprot_dict_test.json'):
+                remove_hoh = True, remove_hydrogen = True, cutoff = 6, split : str = 'train', task = 'multi', hetero = False, alpha_only=False, info_dict='./output_info/uniprot_dict_test.json'):
         super(CustomMultiTaskDataset, self).__init__(root_dir)
         print("root,dir", root_dir, task)
         print("in Initializing MultiTask Dataset...")
@@ -43,9 +43,11 @@ class CustomMultiTaskDataset(Dataset):
         with open(label_dir, 'r') as f:
             self.labels = json.load(f)
         self.remove_hoh = remove_hoh
-        self.remove_hydrogen = remove_hydrogen # 移除氢
+        if remove_hydrogen:
+            print("Removing Hydrogen...")
+        self.remove_hydrogen = remove_hydrogen # 移除氢原子（必要，因为PP的文件里没有给氢原子，需要做到多任务统一）
         self.cutoff = cutoff
-        self.gearnet = gearnet
+        self.hetero = hetero
         self.alpha_only = alpha_only
         file_dir = os.path.join(root_dir, split+'.txt')        
         # self.ec_root = './data/EnzymeCommission/all'
@@ -119,12 +121,14 @@ class CustomMultiTaskDataset(Dataset):
         for item in elements:
             if item in ['CL', 'Cl', 'Br', 'BR', 'AT', 'At', 'F', 'I']:
                 element = 'Halogen'
-            elif item in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI', 'Ca', 'Hg']:
+            elif item in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI', 'Ca', 'Hg', 'NA']:
                 element = 'Metal'
+            elif item[0] in ['C','N','O','S','P','H']:
+                element = item[0]
             else:
                 element = item
             unified_elements.append(element)
-        df = pd.DataFrame({'element': unified_elements, 'x': xs, 'y': ys, 'z': zs})
+        df = pd.DataFrame({'element': unified_elements, 'resname':'LIG', 'x': xs, 'y': ys, 'z': zs})
         return df
     def process_complexes(self):
         p = PDBParser(QUIET=True)
@@ -212,7 +216,9 @@ class CustomMultiTaskDataset(Dataset):
                 protein_seq = []
                 names = []
                 resnames = []
+                residues = []
                 # chain = chains[0]
+                curr_residue = 0
                 for chain in chains:
                     if chain.id == ' ':
                         continue
@@ -230,7 +236,7 @@ class CustomMultiTaskDataset(Dataset):
                                 element = 'H'
                             elif atom_id[0:2] in ['CL', 'Cl', 'Br', 'BR', 'AT', 'At']:
                                 element = 'Halogen'
-                            elif atom_id[0:2] in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI']:
+                            elif atom_id[0:2] in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI', 'Ca', 'Hg', 'NA']:
                                 element = 'Metal'
                             elif atom_id[0] in ['F', 'I']:
                                 element = 'Halogen'
@@ -239,6 +245,7 @@ class CustomMultiTaskDataset(Dataset):
                             else:
                                 element = atom_id
                             names.append(atom_id)
+                            residues.append(curr_residue)
                             elements.append(element)
                             chain_ids.append(chain.id)
                             resnames.append(residue.get_resname())
@@ -246,7 +253,8 @@ class CustomMultiTaskDataset(Dataset):
                             xs.append(x)
                             ys.append(y)
                             zs.append(z)
-                protein_df = pd.DataFrame({'chain': chain_ids, 'resname': resnames, 'element': elements, 'name': names, 'x': xs, 'y': ys, 'z': zs})
+                        curr_residue += 1
+                protein_df = pd.DataFrame({'chain': chain_ids, 'residue': residues, 'resname': resnames, 'element': elements, 'name': names, 'x': xs, 'y': ys, 'z': zs})
                 processed_complex['atoms_protein'] = protein_df
                 processed_complex['protein_seq'] = protein_seq
                 # print(processed_complex)
@@ -351,7 +359,7 @@ class CustomMultiTaskDataset(Dataset):
                     item['labels'] = labels
                     new_complexes.append(item)
             self.processed_complexes = new_complexes
-            self.transform_func = GNNTransformEC(task=self.task, gearnet=self.gearnet)
+            self.transform_func = GNNTransformEC(task=self.task, hetero=self.hetero, alpha_only=self.alpha_only)
             print("Using EC dataset and transformation")
         elif self.task in ['bp', 'mf', 'cc', 'go']:
             print("Using Gene Ontology {} Dataset for training:".format(self.split))
@@ -441,7 +449,7 @@ class CustomMultiTaskDataset(Dataset):
             self.processed_complexes = new_complexes
             self.transform_func = GNNTransformFold(task=self.task,gearnet=self.gearnet)
         else:
-            self.transform_func = GNNTransformMultiTask(gearnet=self.gearnet)
+            self.transform_func = GNNTransformMultiTask(hetero=self.hetero, alpha_only=self.alpha_only)
     def len(self):
         return len(self.processed_complexes)
     def get(self, idx):
@@ -456,10 +464,10 @@ class GNNTransformReaction(object):
         max_num_neighbors: int = 32,
         supernode: bool = False,
         offset_strategy: int = 0,
-        task='reaction', #ec
+        task='bp', #可能是bp, mf, cc中的一个
+        gearnet=False,
         hetero=False,
-        alpha_only=False,
-        gearnet=False
+        alpha_only=False
     ):
         self.cutoff = cutoff
         self.remove_hydrogens = remove_hydrogens
@@ -472,19 +480,21 @@ class GNNTransformReaction(object):
         self.gearnet = gearnet
 
     def __call__(self, item: Dict) -> MyData:
-        # # print("Using Transform EC")
+        # # print("Using Transform Reaction")
         info_root = './output_info/uniprot_dict_all_reaction.json'
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
         
         ligand_df = item["atoms_ligand"]
         protein_df = item["atoms_protein"]
-
+        residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
+        atom_df = protein_df
         if isinstance(ligand_df, pd.DataFrame):
             atom_df = pd.concat([protein_df, ligand_df], axis=0)
             if self.remove_hydrogens:
                 # remove hydrogens
                 atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
+                residue_df = residue_df[residue_df.element != "H"].reset_index(drop=True)
             lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
             lig_flag[-len(ligand_df):] = 0
         else:
@@ -500,7 +510,7 @@ class GNNTransformReaction(object):
         
         #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
         for i, id in enumerate(chain_ids):
-            lig_flag[torch.tensor(list(atom_df['chain'] == id))] = i + 1
+            lig_flag[torch.tensor(list(residue_df['chain'] == id))] = i + 1
             if '-' in item['complex_id']:
                 pf_ids.append(0)
                 break
@@ -519,6 +529,7 @@ class GNNTransformReaction(object):
             else:
                 pf_ids.append(-1)
         num_classes = 384
+        
         if self.gearnet:
             graph = hetero_graph_transform(
                 atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
@@ -602,7 +613,6 @@ class GNNTransformFold(object):
         
         ligand_df = item["atoms_ligand"]
         protein_df = item["atoms_protein"]
-
         if isinstance(ligand_df, pd.DataFrame):
             atom_df = pd.concat([protein_df, ligand_df], axis=0)
             if self.remove_hydrogens:
@@ -703,7 +713,8 @@ class GNNTransformGO(object):
         supernode: bool = False,
         offset_strategy: int = 0,
         task='bp', #可能是bp, mf, cc中的一个
-        gearnet=False
+        hetero=False,
+        alpha_only=False
     ):
         self.cutoff = cutoff
         self.remove_hydrogens = remove_hydrogens
@@ -711,7 +722,8 @@ class GNNTransformGO(object):
         self.supernode = supernode
         self.offset_strategy = offset_strategy
         self.task = task
-        self.gearnet = gearnet
+        self.hetero = hetero
+        self.alpha_only = alpha_only
 
     def __call__(self, item: Dict) -> MyData:
         # info_root = './output_info/uniprot_dict_all_go.json'
@@ -719,29 +731,21 @@ class GNNTransformGO(object):
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
         # print("Using Transform {}".format(self.task))
-        ligand_df = item['atoms_ligand']
         protein_df = item["atoms_protein"]
+        residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
         atom_df = protein_df
-        if isinstance(ligand_df, pd.DataFrame):
-            atom_df = pd.concat([protein_df, ligand_df], axis=0)
-            if self.remove_hydrogens:
-                # remove hydrogens
-                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
-            lig_flag[-len(ligand_df):] = 0
-        else:
-            atom_df = protein_df
-            if self.remove_hydrogens:
-                # remove hydrogens
-                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
+        if self.remove_hydrogens:
+            # remove hydrogens
+            atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
+            residue_df = residue_df[residue_df.element != "H"].reset_index(drop=True)
+        lig_flag = torch.zeros(residue_df.shape[0], dtype=torch.long)
         chain_ids = list(set(protein_df['chain']))
         uniprot_ids = []
         labels = item["labels"]
         pf_ids = []
         #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
         for i, id in enumerate(chain_ids):
-            lig_flag[torch.tensor(list(atom_df['chain'] == id))] = i + 1
+            lig_flag[torch.tensor(list(residue_df['chain'] == id))] = i + 1
             if '-' in item['complex_id']:
                 pf_ids.append(0)
                 break
@@ -759,7 +763,7 @@ class GNNTransformGO(object):
                     print("Error, you shouldn't come here!")
             else:
                 pf_ids.append(-1)
-                
+        # print("pf_id",pf_ids)        
         if self.task == 'mf':
             # num_classes = 490
             num_classes = 5348
@@ -775,9 +779,9 @@ class GNNTransformGO(object):
         else:
             raise RuntimeError
         # 找个办法把chain和Uniprot对应起来，然后就可以查了
-        if self.gearnet:
+        if self.hetero:
             graph = hetero_graph_transform(
-                atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
+                atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq'], alpha_only=self.alpha_only
             )
         else:
             graph = prot_graph_transform(
@@ -856,6 +860,7 @@ class GNNTransformGO(object):
                 annotations = mf_annot + bp_annot + cc_annot
                 
             prop = torch.zeros(num_classes).scatter_(0,torch.tensor(annotations),1)
+            # print(prop)
             graph.functions.append(prop)
             graph.valid_masks.append(valid_mask)
         try:
@@ -890,7 +895,8 @@ class GNNTransformAffinity(object):
         supernode: bool = False,
         offset_strategy: int = 0,
         task='affinity', #lba/ppi
-        gearnet=False
+        hetero=False,
+        alpha_only=False,
     ):
         self.cutoff = cutoff
         self.remove_hydrogens = remove_hydrogens
@@ -898,19 +904,22 @@ class GNNTransformAffinity(object):
         self.supernode = supernode
         self.offset_strategy = offset_strategy
         self.task = task
-        self.gearnet = gearnet
+        self.hetero = hetero
+        self.alpha_only=alpha_only
 
     def __call__(self, item: Dict) -> MyData:
         # print("Using Transform Affinity")
         ligand_df = item["atoms_ligand"]
         protein_df = item["atoms_protein"]
-
+        residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
         if isinstance(ligand_df, pd.DataFrame):
             atom_df = pd.concat([protein_df, ligand_df], axis=0)
+            res_ligand_df = pd.concat([residue_df, ligand_df], axis=0)
             if self.remove_hydrogens:
                 # remove hydrogens
                 atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
+                res_ligand_df = res_ligand_df[res_ligand_df.element != "H"].reset_index(drop=True)
+            lig_flag = torch.zeros(res_ligand_df.shape[0], dtype=torch.long)
             lig_flag[-len(ligand_df):] = 0
         else:
             atom_df = protein_df
@@ -923,9 +932,9 @@ class GNNTransformAffinity(object):
             lig_flag[torch.tensor(list(atom_df['chain'] == id))] = i + 1
         labels = item["labels"]
         #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
-        if self.gearnet:
+        if self.hetero:
             graph = hetero_graph_transform(
-                atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
+                atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq'], alpha_only=self.alpha_only
             )
         else:
             graph = prot_graph_transform(
@@ -952,7 +961,7 @@ class GNNTransformAffinity(object):
         graph.type = self.task
         return graph
     
-    
+
 class GNNTransformEC(object):
     def __init__(
         self,
@@ -962,7 +971,8 @@ class GNNTransformEC(object):
         supernode: bool = False,
         offset_strategy: int = 0,
         task='ec', #ec
-        gearnet=False
+        hetero=False,
+        alpha_only=False
     ):
         self.cutoff = cutoff
         self.remove_hydrogens = remove_hydrogens
@@ -970,36 +980,31 @@ class GNNTransformEC(object):
         self.supernode = supernode
         self.offset_strategy = offset_strategy
         self.task = task
-        self.gearnet = gearnet
+        self.hetero = hetero
+        self.alpha_only=alpha_only
 
     def __call__(self, item: Dict) -> MyData:
         # print("Using Transform EC")
         info_root = './output_info/uniprot_dict_all_reaction.json'
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
-        ligand_df = item["atoms_ligand"]
         protein_df = item["atoms_protein"]
         atom_df = protein_df
-        if isinstance(ligand_df, pd.DataFrame):
-            atom_df = pd.concat([protein_df, ligand_df], axis=0)
-            if self.remove_hydrogens:
-                # remove hydrogens
-                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
-            lig_flag[-len(ligand_df):] = 0
-        else:
-            atom_df = protein_df
-            if self.remove_hydrogens:
-                # remove hydrogens
-                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
+        # residue_df = protein_df[protein_df.name == 'CA'].reset_index(drop=True)
+        residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
+        
+        if self.remove_hydrogens:
+            # remove hydrogens
+            atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
+            residue_df = residue_df[residue_df.element != "H"].reset_index(drop=True)
+        lig_flag = torch.zeros(residue_df.shape[0], dtype=torch.long)
         chain_ids = list(set(protein_df['chain']))
         uniprot_ids = []
         labels = item["labels"]
         pf_ids = []
         #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
         for i, id in enumerate(chain_ids):
-            lig_flag[torch.tensor(list(atom_df['chain'] == id))] = i + 1
+            lig_flag[torch.tensor(list(residue_df['chain'] == id))] = i + 1
             if '-' in item['complex_id']:
                 pf_ids.append(0)
                 break
@@ -1022,7 +1027,7 @@ class GNNTransformEC(object):
         # num_classes = 538
         if self.gearnet:
             graph = hetero_graph_transform(
-                atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
+                atom_df=atom_df, super_node=self.supernode, protein_seq=item['protein_seq'], alpha_only=self.alpha_only
             )
         else:
             graph = prot_graph_transform(
@@ -1073,7 +1078,6 @@ class GNNTransformEC(object):
         return graph
 
 
-
 class GNNTransformMultiTask(object):
     def __init__(
         self,
@@ -1082,14 +1086,16 @@ class GNNTransformMultiTask(object):
         max_num_neighbors: int = 32,
         supernode: bool = False,
         offset_strategy: int = 0,
-        gearnet = False
+        hetero = False,
+        alpha_only = False
     ):
         self.cutoff = cutoff
         self.remove_hydrogens = remove_hydrogens
         self.max_num_neighbors = max_num_neighbors
         self.supernode = supernode
         self.offset_strategy = offset_strategy
-        self.gearnet = gearnet
+        self.hetero = hetero
+        self.alpha_only=alpha_only
 
     def __call__(self, item: Dict) -> MyData:
         # print("Using Transform LBA")
@@ -1099,27 +1105,26 @@ class GNNTransformMultiTask(object):
         
         ligand_df = item["atoms_ligand"]
         protein_df = item["atoms_protein"]
-
+        residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
         if isinstance(ligand_df, pd.DataFrame):
             atom_df = pd.concat([protein_df, ligand_df], axis=0)
-            if self.remove_hydrogens:
-                # remove hydrogens
-                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
-            lig_flag[-len(ligand_df):] = 0
+            res_ligand_df = pd.concat([residue_df, ligand_df], axis=0)
         else:
             atom_df = protein_df
-            if self.remove_hydrogens:
-                # remove hydrogens
-                atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
-            lig_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
+            res_ligand_df = residue_df
+        if self.remove_hydrogens:
+            # remove hydrogens
+            atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
+            res_ligand_df = res_ligand_df[res_ligand_df.element != "H"].reset_index(drop=True)
+        # 此时ligand 所对应的atom被自动设置为0
+        lig_flag = torch.zeros(res_ligand_df.shape[0], dtype=torch.long)
         chain_ids = list(set(protein_df['chain']))
         uniprot_ids = []
         labels = item["labels"]
         pf_ids = []
         #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
         for i, id in enumerate(chain_ids):
-            lig_flag[torch.tensor(list(atom_df['chain'] == id))] = i + 1
+            lig_flag[torch.tensor(list(res_ligand_df['chain'] == id))] = i + 1
             if '-' in item['complex_id']:
                 pf_ids.append(0)
                 break
@@ -1146,9 +1151,9 @@ class GNNTransformMultiTask(object):
         # num_classes = [3615, 5348, 10285, 1901]
         # total_classes = 3615 + 5348 + 10285 + 1901
         # 找个办法把chain和Uniprot对应起来，然后就可以查了
-        if self.gearnet:
+        if self.hetero:
             graph = hetero_graph_transform(
-                atom_df=atom_df, super_node=self.supernode, flag=lig_flag, protein_seq=item['protein_seq']
+                item_name = item['complex_id'], atom_df=atom_df, super_node=self.supernode, protein_seq=item['protein_seq'], alpha_only=self.alpha_only
             )
         else:
             graph = prot_graph_transform(
@@ -1241,6 +1246,6 @@ class GNNTransformMultiTask(object):
             print(item['complex_id'])
             print(chain_ids)
             print(len(chain_ids), len(graph.functions))
-        graph.prot_id = item["complex_id"]
+        graph.prot_id = item["complex_id"]        
         graph.type = 'multi'
         return graph

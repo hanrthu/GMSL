@@ -2,7 +2,7 @@
 
 # Lightning Model Settings
 batch_size: 32
-sdim: 100
+sdim: 128
 vdim: 16
 depth: 3
 model_type: gearnet
@@ -12,7 +12,7 @@ batch_accum_grad: 1
 weight_decay: 0
 max_epochs: 50
 enhanced: False
-readout: weighted_feature
+readout: task_aware_attention
 # 这些都是EQGAT需要的参数，之后优化掉
 cross_ablate: False
 no_feat_attn: False

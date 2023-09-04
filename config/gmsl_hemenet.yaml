@@ -1,27 +1,27 @@
-# This is the config file for EGNN.
+# This is the config file for Heterougeneous Multitask Equivariant Network (HemeNet).
 
 # Lightning Model Settings
-batch_size: 32
+batch_size: 4
 sdim: 128
 vdim: 16
 depth: 3
-model_type: egnn
+model_type: hemenet
 num_radial: 32
 learning_rate: 1.0e-4
 batch_accum_grad: 1
 weight_decay: 0
 max_epochs: 50
 enhanced: False
-readout: weighted_feature
+readout: task_aware_attention
 # 这些都是EQGAT需要的参数，之后优化掉
 cross_ablate: False
 no_feat_attn: False
 
 #Dataset Settings
 drop_last: False
-run_name: egnn
+run_name: hemenet
 train_task: multi
-train_split: train_all
+train_split: train
 val_split: val
 test_split: test
 alpha_only: False
@@ -31,9 +31,10 @@ num_workers: 4
 # Trainer Settings
 device: 
   - 0
+  - 1
 nruns: 3
 wandb: False
-save_dir: egnn
+save_dir: hemenet
 gradient_clip_val: 10
 load_ckpt: null
 seed: 817

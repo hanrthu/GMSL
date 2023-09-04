@@ -8,21 +8,22 @@ from torch_geometric.nn.inits import reset
 from typing import Optional
 
 from gmsl.modules import DenseLayer, GatedEquivBlock, LayerNorm, GatedEquivBlockTP
-from gmsl.basemodels import EQGATGNN, PaiNNGNN, SchNetGNN, GVPNetwork, EGNN, EGNN_Edge, GearNetIEConv, TaskAwareReadout
+from gmsl.basemodels import EQGATGNN, PaiNNGNN, SchNetGNN, GVPNetwork, \
+                            EGNN, EGNN_Edge, GearNetIEConv, MultiLayerTAR, HemeNet
 
 # SEGNN
 from gmsl.segnn.segnn import SEGNN
 from gmsl.segnn.balanced_irreps import BalancedIrreps
 from e3nn.o3 import Irreps
 from e3nn.o3 import spherical_harmonics
-
+from utils.hetero_graph import MAX_CHANNEL
 
 class BaseModel(nn.Module):
     def __init__(
         self,
         num_elements: int,
         out_units: int,
-        sdim: int = 128,
+        sdim: int = 512,
         vdim: int = 16,
         depth: int = 3,
         r_cutoff: float = 5.0,
@@ -37,15 +38,16 @@ class BaseModel(nn.Module):
         no_feat_attn: bool = False,
         enhanced: bool = True,
         task = 'multitask',
-        readout = 'vanilla'
+        readout = 'vanilla',
+        batch_norm = True,
+        layer_norm = True
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "egnn", "egnn_edge", "gearnet"]:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "egnn", "egnn_edge", "gearnet", "hemenet"]:
             print("Wrong select model type")
             print("Exiting code")
             exit()
 
         super(BaseModel, self).__init__()
-
         self.sdim = sdim
         self.vdim = vdim
         self.depth = depth
@@ -57,10 +59,13 @@ class BaseModel(nn.Module):
         self.out_units = out_units
         self.enhanced = enhanced
         self.task = task
+        max_channel = MAX_CHANNEL
+        channel_nf = sdim
         
         self.init_embedding = nn.Embedding(num_embeddings=num_elements, embedding_dim=sdim)
         self.init_e_embedding = nn.Embedding(num_embeddings=20, embedding_dim=sdim)
-        
+        # 14 is the n_channel size
+        self.channel_attr = nn.Embedding(num_embeddings=MAX_CHANNEL, embedding_dim=sdim)
         if self.model_type == "painn":
             self.gnn = PaiNNGNN(
                 dims=(sdim, vdim),
@@ -105,17 +110,18 @@ class BaseModel(nn.Module):
             concat_hidden = True
             hidden_dims = [512, 512, 512, 512, 512, 512]
             self.gnn = GearNetIEConv(
-                input_dim=21,
+                input_dim=31,
                 embedding_dim=128, # ?怎么没看到config里面设置
                 hidden_dims=hidden_dims,
-                batch_norm=True,
+                batch_norm=batch_norm,
+                layer_norm=layer_norm,
                 concat_hidden=concat_hidden,
                 short_cut=True,
-                readout='sum',
+                # readout='sum',
                 num_relation=7,
                 # 这个59维包括了inresidue（20），outresidue（20），relation（7），sequentialdist（11）和spatialdist（1）
                 edge_input_dim=59,
-                num_angle_bin=8,
+                num_angle_bin=8
             )
             if concat_hidden == True:
                 sdim = 0
@@ -123,6 +129,40 @@ class BaseModel(nn.Module):
                     sdim += i
             else:
                 sdim = hidden_dims[-1]
+        elif self.model_type == "hemenet":
+            concat_hidden = True
+            # TODO: 建立一个Residue的map，可以根据不同的residue来自动学习
+            # weights = torch.where(
+            #     self.atom_weights_mask,
+            #     self.zero_atom_weight,
+            #     self.atom_weight
+            # )  # [num_aa_classes, max_atom_number(n_channel)]
+            # if not self.fix_atom_weights:
+            #     weights = F.normalize(weights, dim=-1)
+            # weights = weights[residue_types]
+            hidden_dims = [512, 512, 512, 512, 512, 512]
+            self.gnn = HemeNet(
+                input_dim=31,
+                embedding_dim=512, # ?怎么没看到config里面设置
+                hidden_dims=hidden_dims,
+                channel_dim = max_channel,
+                channel_nf=channel_nf,
+                batch_norm=batch_norm,
+                layer_norm=layer_norm,
+                concat_hidden=concat_hidden,
+                short_cut=True,
+                num_relation=7,
+                # 这个59维包括了inresidue（20），outresidue（20），relation（7），sequentialdist（11）和spatialdist（1）
+                edge_input_dim=59,
+                num_angle_bin=8
+            )
+            if concat_hidden == True:
+                sdim = 0
+                for i in hidden_dims:
+                    sdim += i
+            else:
+                sdim = hidden_dims[-1]
+
         elif self.model_type == "schnet":
             self.gnn = SchNetGNN(
                 dims=sdim,
@@ -222,13 +262,16 @@ class BaseModel(nn.Module):
         self.readout = readout
         # print("Readout Strategy:", readout)
         if readout == 'task_aware_attention':
-            self.affinity_prompts = nn.Parameter(torch.ones(len(self.affinity_heads), 1, sdim))
-            self.property_prompts = nn.Parameter(torch.ones(len(self.property_heads), 1, sdim))
-            self.global_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.affinity_heads))
-            self.chain_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.property_heads))
+            self.affinity_prompts = nn.Parameter(torch.ones(1, len(self.affinity_heads), sdim))
+            self.property_prompts = nn.Parameter(torch.ones(1, len(self.property_heads), sdim))
+            self.global_readout = MultiLayerTAR(in_features=sdim, hidden_size=sdim, out_features=sdim, num_layers=1)
+            self.chain_readout = MultiLayerTAR(in_features=sdim, hidden_size=sdim, out_features=sdim, num_layers=1)
+            nn.init.kaiming_normal_(self.affinity_prompts)
+            nn.init.kaiming_normal_(self.property_prompts)
             # print(self.affinity_prompts.shape)
             # print(self.property_prompts.shape)
         elif readout == 'weighted_feature':
+            # Different weights for different tasks
             self.affinity_weights = nn.Parameter(torch.ones(len(self.affinity_heads), 1, sdim))
             self.property_weights = nn.Parameter(torch.ones(len(self.property_heads), 1, sdim))
             nn.init.kaiming_normal_(self.affinity_weights)
@@ -237,16 +280,17 @@ class BaseModel(nn.Module):
         self.apply(reset)
 
     def forward(self, data: Batch, subset_idx: Optional[Tensor] = None) -> Tensor:
-        s, pos, batch = data.x, data.pos, data.batch
+        s, pos, batch, channel_weights = data.x, data.pos, data.batch, data.channel_weights
         edge_index, d = data.edge_index, data.edge_weights
         lig_flag = data.lig_flag
         chains = data.chains
+        pos = pos.squeeze()
         # print("Unique chains:", len(function_label), len(torch.unique(chains)))
         # # print("Atoms:", s.shape)
         # print("Protein shape:", s[(lig_flag!=0).squeeze()].shape)
         # print("Lig shape, chain shape:", lig_flag.shape, chains.shape)
         # external_flag = data.external_flag
-        if self.model_type != "gearnet":
+        if self.model_type not in ["gearnet", "hemenet"]:
             s = self.init_embedding(s)
         row, col = edge_index
         rel_pos = pos[row] - pos[col]
@@ -286,6 +330,11 @@ class BaseModel(nn.Module):
             s = self.gnn(graph, input_data)
             # print("Gearnet Output Shape:", s.shape)
             s = self.post_lin(s)
+        elif self.model_type == 'hemenet':
+            edge_list = torch.cat([data.edge_index.t(), data.edge_relations.unsqueeze(-1)], dim=-1) # [|E|, 3]
+            input_data = data.x
+            channel_attr = self.channel_attr(data.residue_elements.long())
+            s, coords = self.gnn(input_data, edge_list, pos, channel_attr, channel_weights, data.edge_weights)
         else:
             s = self.gnn(x=s, edge_index=edge_index, edge_attr=d, batch=batch)
             if self.use_norm:
@@ -318,10 +367,44 @@ class BaseModel(nn.Module):
                     return affinity_pred
                 else:
                     raise RuntimeError
-            # TODO: Implement task aware attention 
-            elif self.readout == 'taskaware_attention':
-                y_pred = None
-                chain_pred = None
+            elif self.readout == 'task_aware_attention':
+                global_index = batch
+                y_pred = self.global_readout(self.affinity_prompts, s, global_index)
+                chain_index = (chains-1).squeeze()
+                proteins = s[(lig_flag!=0).squeeze(), :]
+                # print("Shapes:", chain_index.shape, proteins.shape)
+                chain_pred = self.chain_readout(self.property_prompts, proteins, chain_index)
+                if self.task == 'multi':
+                    affinity_pred = [affinity_head(y_pred[i].squeeze()) for i, affinity_head in enumerate(self.affinity_heads)]
+                    property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
+                    return affinity_pred, property_pred
+                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc', 'reaction', 'fold']:
+                    property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
+                    return property_pred
+                elif self.task in ['lba', 'ppi', 'affinity']:
+                    affinity_pred = [affinity_head(y_pred[i]) for i, affinity_head in enumerate(self.affinity_heads)]
+                    return affinity_pred
+                else:
+                    raise RuntimeError
+            elif self.readout == 'task_aware_attention':
+                global_index = batch
+                y_pred = self.global_readout(self.affinity_prompts, s, global_index)
+                chain_index = (chains-1).squeeze()
+                proteins = s[(lig_flag!=0).squeeze(), :]
+                # print("Shapes:", chain_index.shape, proteins.shape)
+                chain_pred = self.chain_readout(self.property_prompts, proteins, chain_index)
+                if self.task == 'multi':
+                    affinity_pred = [affinity_head(y_pred[i].squeeze()) for i, affinity_head in enumerate(self.affinity_heads)]
+                    property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
+                    return affinity_pred, property_pred
+                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
+                    property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
+                    return property_pred
+                elif self.task in ['lba', 'ppi']:
+                    affinity_pred = [affinity_head(y_pred[i]) for i, affinity_head in enumerate(self.affinity_heads)]
+                    return affinity_pred
+                else:
+                    raise RuntimeError
             if self.model_type == "egnn_edge":
                 edge_batch = batch[edge_index[0]]
                 # e_external = e[external_flag==1]

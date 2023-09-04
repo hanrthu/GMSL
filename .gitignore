@@ -14,7 +14,10 @@ data_demos/*
 output_demo/*
 wandb/*
 runs/*
+tests/*
 models/*
 lightning_logs/*
 data/*
 datas_/*
+.vscode/*
+notebooks/*

@@ -69,13 +69,14 @@ class GearNetIEConv(nn.Module):
         #     raise ValueError("Unknown readout `%s`" % readout)
 
     def get_ieconv_edge_feature(self, graph):
-        u = torch.ones_like(graph.pos)
-        u[1:] = graph.pos[1:] - graph.pos[:-1]
+        pos = graph.pos.squeeze()
+        u = torch.ones_like(pos)
+        u[1:] = pos[1:] - pos[:-1]
         u = F.normalize(u, dim=-1)
-        b = torch.ones_like(graph.pos)
+        b = torch.ones_like(pos)
         b[:-1] = u[:-1] - u[1:]
         b = F.normalize(b, dim=-1)
-        n = torch.ones_like(graph.pos)
+        n = torch.ones_like(pos)
         n[:-1] = torch.cross(u[:-1], u[1:])
         n = F.normalize(n, dim=-1)
 
@@ -83,7 +84,7 @@ class GearNetIEConv(nn.Module):
 
         node_in, node_out = graph.edge_index
         atom2residue = torch.as_tensor(range(len(graph.x)), dtype=torch.long).to(node_in.device)
-        t = graph.pos[node_out] - graph.pos[node_in]
+        t = pos[node_out] - pos[node_in]
         t = torch.einsum('ijk, ij->ik', local_frame[node_in], t)
         r = torch.sum(local_frame[node_in] * local_frame[node_out], dim=1)
         delta = torch.abs(atom2residue[node_in] - atom2residue[node_out]).float() / 6

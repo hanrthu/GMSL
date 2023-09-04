@@ -2,7 +2,7 @@
 
 # Lightning Model Settings
 batch_size: 32
-sdim: 100
+sdim: 128
 vdim: 16
 depth: 3
 model_type: gearnet

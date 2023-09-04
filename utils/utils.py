@@ -1,3 +1,5 @@
+#!/usr/bin/python
+# -*- coding:utf-8 -*-
 import torch
 import pandas as pd
 from atom3d.util.graph import mol_atoms, one_of_k_encoding_unk
@@ -23,15 +25,13 @@ element_mapping = lambda x: {
     'C' : 2,
     'N' : 3,
     'O' : 4,
-    # 'F' : 4,
     'S' : 5,
-    # 'Cl': 6, 'CL': 6,
     'P' : 6,
     'Metal': 7,
     'Halogen':8,
 }.get(x, 9)
 
-# 这里只把PDBBind里面的内容弄了进来，其他的太复杂了，还需要重新处理一下
+# The weight mapping for atoms
 weight_mapping = lambda x: {
     'H' : 1,    
     'C' : 12,
@@ -50,30 +50,7 @@ weight_mapping = lambda x: {
     'I' : 127,
 }.get(x, 0)
 
-# amino_acids = lambda x: {
-#     'ALA': 1,
-#     'ARG': 2,
-#     'ASN': 3,
-#     'ASP': 4,
-#     'CYS': 5,
-#     'GLU': 6,
-#     'GLN': 7,
-#     'GLY': 8,
-#     'HIS': 9,
-#     'ILE': 10,
-#     'LEU': 11,
-#     'LYS': 12,
-#     'MET': 13,
-#     'PHE': 14,
-#     'PRO': 15,
-#     'SER': 16,
-#     'THR': 17,
-#     'TRP': 18,
-#     'TYR': 10,
-#     'VAL': 20
-# }.get(x, 0)
-
-# 与TorchDrug.Protein类中的顺序一致
+# The order is the same as TorchDrug.Protein
 amino_acids = lambda x: {"GLY": 0, "ALA": 1, "SER": 2, "PRO": 3, "VAL": 4, "THR": 5, "CYS": 6, "ILE": 7, "LEU": 8,
                   "ASN": 9, "ASP": 10, "GLN": 11, "LYS": 12, "GLU": 13, "MET": 14, "HIS": 15, "PHE": 16,
                   "ARG": 17, "TYR": 18, "TRP": 19}.get(x, 20)
@@ -99,6 +76,26 @@ bond_dict = lambda x: {
     # 'ss': 16
 }.get(x, 14)
 
+
+def singleton(cls):
+    _instance = {}
+
+    def inner(*args, **kwargs):
+        if cls not in _instance:
+            _instance[cls] = cls(*args, **kwargs)
+        return _instance[cls]
+    return inner
+
+def load_config(cfg_file, context=None):
+    with open(cfg_file, "r") as fin:
+        raw = fin.read()
+    template = jinja2.Template(raw)
+    instance = template.render(context)
+    cfg = yaml.safe_load(instance)
+    cfg = easydict.EasyDict(cfg)
+    return cfg
+
+# Modified torch_geometric.data.data for better representation ability
 class MyData(Data):
     def __init__(
         self, x: OptTensor = None, edge_index: OptTensor = None,
@@ -453,15 +450,7 @@ def prot_graph_transform(
 
     return graph
 
-def load_config(cfg_file, context=None):
-    with open(cfg_file, "r") as fin:
-        raw = fin.read()
-    template = jinja2.Template(raw)
-    instance = template.render(context)
-    cfg = yaml.safe_load(instance)
-    cfg = easydict.EasyDict(cfg)
-    return cfg
-    
+# For Gearnet LineGraph
 def construct_edge_gearnet(graph, edge_list, num_relation):
     node_in, node_out, r = edge_list.t()
     residue_in, residue_out = graph.atom2residue[node_in], graph.atom2residue[node_out]
@@ -471,76 +460,11 @@ def construct_edge_gearnet(graph, edge_list, num_relation):
     spatial_dist = (graph.pos[node_in] - graph.pos[node_out]).norm(dim=-1)
 
     return torch.cat([
-        torch.zeros((len(in_residue_type), 21)).scatter_(1, in_residue_type.unsqueeze(1), 1),
-        torch.zeros((len(out_residue_type), 21)).scatter_(1, in_residue_type.unsqueeze(1), 1),
+        torch.zeros((len(in_residue_type), 31)).scatter_(1, in_residue_type.unsqueeze(1), 1),
+        torch.zeros((len(out_residue_type), 31)).scatter_(1, in_residue_type.unsqueeze(1), 1),
         torch.zeros((len(r), num_relation)).scatter_(1, r.unsqueeze(1), 1),
         torch.zeros((len(sequential_dist.clamp(max=10)), 11)).scatter_(1, sequential_dist.clamp(max=10).unsqueeze(1), 1),
         spatial_dist.unsqueeze(-1)
     ], dim=-1)
 
 
-def hetero_graph_transform(
-    atom_df: pd.DataFrame,
-    protein_seq:pd.DataFrame,
-    cutoff: float = 4.5,
-    feat_col: str = "resname",
-    init_dtype: torch.dtype = torch.float64,
-    super_node: bool = False,
-    offset_strategy : int = 0,
-    flag: torch.Tensor = None, 
-    ):
-    """
-    A function that can generate graph with different kinds of edges
-    """
-    # print("Creating Graph for Gearnet!")
-    pos = torch.as_tensor(atom_df[["x", "y", "z"]].values, dtype=init_dtype)
-    node_feats = torch.as_tensor(list(map(amino_acids, atom_df[feat_col])), dtype=torch.long)
-    # print("Node Features:", node_feats.shape)
-    # 转成onehot的形式
-    node_feats = torch.zeros((len(node_feats), 21)).scatter_(1, node_feats.unsqueeze(1), 1)
-    residues = torch.as_tensor(list(map(amino_acids, protein_seq)), dtype=torch.long)
-    knn = KNNEdge(k=10, min_distance=5)
-    spatial = SpatialEdge(radius=10, min_distance=5)
-    # TODO：加上Sequential Edge， 记得加到edge layers里面！
-    sequential = SequentialEdge(max_distance=2)
-    edge_layers = [knn, spatial, sequential]
-    graph = MyData(
-        x=node_feats,
-        num_nodes = len(node_feats),
-        pos=pos.to(torch.get_default_dtype()),
-        num_residues = len(residues),
-        edge_feature=None,
-        chain=atom_df['chain']
-    )
-    edge_list = []
-    num_edges = []
-    num_relations = []
-    for layer in edge_layers:
-        edges, num_relation = layer(graph)
-        edge_list.append(edges)
-        num_edges.append(len(edges))
-        num_relations.append(num_relation)
-    # print("Nume Nodes", len(graph.x))
-    # print("Num KNN Edges:", len(edge_list[0]))
-    # print("Num Spatial Edges:", len(edge_list[1]))
-    # print("Num Sequential Edges:", len(edge_list[2]))
-    edge_list = torch.cat(edge_list)
-    num_edges = torch.tensor(num_edges)
-    num_relations = torch.tensor(num_relations)
-    num_relation = num_relations.sum()
-    offsets = (num_relations.cumsum(0) - num_relations).repeat_interleave(num_edges)
-    edge_list[:, 2] += offsets
-    # 这里把edge_index和edge_relation分开装，是为了能够让处理batch的时候不要把relation也加上offset
-    graph.edge_index = edge_list[:, :2].t()
-    graph.edge_relations = edge_list[:, 2]
-    graph.edge_weights = torch.ones(len(edge_list))
-    graph.num_relation = num_relation
-    # print("Finished The Graph")
-    # print(graph)
-    return graph
-    
-    
-    
-        
-        
-    

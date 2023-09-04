@@ -9,13 +9,12 @@ from typing import Tuple
 class MultiTaskModel(pl.LightningModule):
     def __init__(
         self,
-        args,
         sdim: int = 128,
         vdim: int = 16,
         depth: int = 5,
         r_cutoff: float = 5.0,
         num_radial: int = 32,
-        model_type: str = "egnn",
+        model_type: str = "gearnet",
         learning_rate: float = 1e-4,
         weight_decay: float = 0.0,
         patience_scheduler: int = 10,
@@ -28,13 +27,13 @@ class MultiTaskModel(pl.LightningModule):
         task = 'multi',
         readout = 'vanilla'
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet"]:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet"]:
             print("Wrong select model type")
             print("Exiting code")
             exit()
 
         super(MultiTaskModel, self).__init__()
-        self.save_hyperparameters(args)
+        self.save_hyperparameters()
         print("Initializing MultiTask Model...")
         self.sdim = sdim
         self.vdim = vdim
@@ -75,6 +74,7 @@ class MultiTaskModel(pl.LightningModule):
             raise NotImplementedError
         # print("Num Elements:", num_elements)
         if model_type != "segnn":
+            # print("Args:", args)
             self.model = BaseModel(sdim=sdim,
                                    vdim=vdim,
                                    depth=depth,
@@ -87,8 +87,8 @@ class MultiTaskModel(pl.LightningModule):
                                    dropout=0.0,
                                    use_norm=use_norm,
                                    aggr=aggr,
-                                   cross_ablate=args.cross_ablate,
-                                   no_feat_attn=args.no_feat_attn,
+                                   cross_ablate=False,
+                                   no_feat_attn=False,
                                    task = task,
                                    readout=readout
                                 # protein_function_class_dims = class_dims
@@ -211,7 +211,11 @@ class MultiTaskModel(pl.LightningModule):
         for i, (property_name, class_num) in enumerate(self.property_info.items()):
             right = left + class_num
             curr_pred = y_property_pred[i]
-            curr_true = y_property_true[:, left: right]
+            curr_true = y_property_true[:, left: right] # to avoid that there are only on element in prediction
+            if len(curr_pred.shape) == 1:
+                curr_pred = curr_pred.unsqueeze(0)
+            if len(curr_true.shape) == 1:
+                curr_true = curr_true.unsqeeze(0)
             curr_mask = y_property_mask[:, i]
             # print("Property Before:", property_name, curr_pred.shape, curr_true.shape, curr_mask.shape)
             curr_pred = curr_pred[curr_mask == 1]
@@ -461,11 +465,10 @@ class MultiTaskModel(pl.LightningModule):
         print("TEST:", test_res)
         self.test_step_outputs.clear()
         # return mse, mae
-
+        
 class AffinityModel(pl.LightningModule):
     def __init__(
         self,
-        args,
         sdim: int = 128,
         vdim: int = 16,
         depth: int = 5,
@@ -484,14 +487,14 @@ class AffinityModel(pl.LightningModule):
         task = 'affinity',
         readout = 'vanilla',
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet"]:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet"]:
             print("Wrong select model type")
             print("Exiting code")
             exit()
 
         super(AffinityModel, self).__init__()
         print("Initializing Affinity Model...")
-        self.save_hyperparameters(args)
+        self.save_hyperparameters()
 
         self.sdim = sdim
         self.vdim = vdim
@@ -677,20 +680,15 @@ class AffinityModel(pl.LightningModule):
         self.log("test_el1", mae, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
         return mse, mae
     
-
-
-
-
 class PropertyModel(pl.LightningModule):
     def __init__(
         self,
-        args,
         sdim: int = 128,
         vdim: int = 16,
         depth: int = 5,
         r_cutoff: float = 5.0,
         num_radial: int = 32,
-        model_type: str = "eqgat",
+        model_type: str = "gearnet",
         learning_rate: float = 1e-4,
         weight_decay: float = 0.0,
         patience_scheduler: int = 10,
@@ -702,14 +700,14 @@ class PropertyModel(pl.LightningModule):
         offset_strategy: int = 0,
         task = 'go'
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet"]:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet"]:
             print("Wrong select model type")
             print("Exiting code")
             exit()
 
         super(PropertyModel, self).__init__()
         print("Initializing Property Model...")
-        self.save_hyperparameters(args)
+        self.save_hyperparameters()
 
         self.sdim = sdim
         self.vdim = vdim
@@ -749,8 +747,8 @@ class PropertyModel(pl.LightningModule):
                                    dropout=0.0,
                                    use_norm=use_norm,
                                    aggr=aggr,
-                                   cross_ablate=args.cross_ablate,
-                                   no_feat_attn=args.no_feat_attn,
+                                   cross_ablate=False,
+                                   no_feat_attn=False,
                                    task=task
                                 #    protein_function_class_dims = class_dims
                                    )
