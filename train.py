@@ -1,34 +1,27 @@
 
-import os
 import json
-import time
-import yaml
-import wandb
-import torch
-import random
-import pandas as pd
+import os
 import os.path as osp
-
+import random
+import time
 from argparse import ArgumentParser
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
+import pandas as pd
 import pytorch_lightning as pl
-from pytorch_lightning.strategies.ddp import DDPStrategy
+import torch
+import wandb
+import yaml
+from pytorch_lightning.callbacks import (LearningRateMonitor, ModelCheckpoint,
+                                         ModelSummary)
 from pytorch_lightning.loggers import WandbLogger
-
-from pytorch_lightning.callbacks import (
-    LearningRateMonitor,
-    ModelCheckpoint,
-    ModelSummary
-)
-from utils.task_models import MultiTaskModel, PropertyModel, AffinityModel
-from torch_geometric.loader import DataLoader
-
-from utils.multitask_data import CustomMultiTaskDataset
+from pytorch_lightning.strategies.ddp import DDPStrategy
 # from itertools import cycle
 from torch.utils.data import Sampler
-from typing import List
+from torch_geometric.loader import DataLoader
+from utils.multitask_data import CustomMultiTaskDataset
+from utils.task_models import AffinityModel, MultiTaskModel, PropertyModel
 
 try:
     MODEL_DIR = osp.join(osp.dirname(osp.realpath(__file__)), "models")
@@ -142,7 +135,7 @@ class LBADataLightning(pl.LightningDataModule):
     def __init__(
         self,
         drop_last,
-        batch_size: int = 128,
+        batch_size: int = 64,
         num_workers: int = 4,
         train_task: str = 'multi',
         train_split: str = 'train_all',
@@ -179,20 +172,7 @@ class LBADataLightning(pl.LightningDataModule):
         self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only)
         self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only)
 
-    def train_dataloader(self, shuffle: bool = False):
-        # if self.auxiliary != None:
-        #     batch_sampler = CustomBatchSampler(batch_size_main=self.batch_size, data_source=self.train_dataset, drop_last=self.drop_last, sample_strategy=self.sample_strategy)
-        #     # print("Trainset:", self.train_dataset[3506], self.train_dataset[3507])
-        #     return DataLoader(
-        #         self.train_dataset,
-        #         shuffle=shuffle,
-        #         num_workers=self.num_workers,
-        #         pin_memory=True,
-        #         batch_sampler=batch_sampler,
-        #         persistent_workers=True
-        #     )
-        # else:
-            # print("Not Using Auxiliary Methods:")
+    def train_dataloader(self, shuffle: bool = True):
         return DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
@@ -239,48 +219,7 @@ def get_argparse():
     parser = ArgumentParser(
         description="Main training script for Equivariant GNNs on Multitask Data."
     )
-    # Training Setting
-    # parser.add_argument("--batch_size", type=int, default=16)
-    # parser.add_argument("--sdim", type=int, default=100)
-    # parser.add_argument("--vdim", type=int, default=16)
-    # parser.add_argument("--depth", type=int, default=3)
     parser.add_argument("--config", type=str, default=None)
-    # parser.add_argument(
-    #     "--model_type", type=str, default="eqgat", choices=["eqgat", "painn", "schnet", "segnn", "egnn", "egnn_edge", "gearnet"]
-    # )
-    # parser.add_argument("--cross_ablate", default=False, action="store_true")
-    # parser.add_argument("--no_feat_attn", default=False, action="store_true")
-
-    # parser.add_argument("--nruns", type=int, default=3)
-    # parser.add_argument("--seed", type=int, default=0)
-    # parser.add_argument("--num_radial", type=int, default=32)
-
-    # parser.add_argument("--num_workers", type=int, default=4)
-
-    # parser.add_argument("--learning_rate", type=float, default=1e-4)
-    # parser.add_argument("--batch_accum_grad", type=int, default=1)
-
-    # parser.add_argument("--weight_decay", type=float, default=0.0)
-    # parser.add_argument("--max_epochs", type=int, default=20)
-    # parser.add_argument("--gradient_clip_val", type=float, default=10)
-    # parser.add_argument("--patience_epochs_lr", type=int, default=10)
-
-    # parser.add_argument("--save_dir", type=str, default="base_eqgat")
-    # parser.add_argument("--device", default="0", type=str)
-    # parser.add_argument("--load_ckpt", default=None)
-    # parser.add_argument("--drop_last", default=False)
-    # # parser.add_argument("--sample_strategy", default=0, type=int)
-    # parser.add_argument("--enhanced", default=False, action='store_true', help="for EGNN_Edge, choose the enhanced version")
-    # parser.add_argument("--super_node", default=False, action='store_true', help="Add a supernode or not")
-    # parser.add_argument("--wandb", default=False, action='store_true', help='Use wandb logger')
-    # parser.add_argument("--run_name", default='tmp', help='Name a new run')
-    # parser.add_argument("--train_task", default='multi', help='Choose a task to train the model')
-    # parser.add_argument("--train_split", default='train_all', help='Choose a split to train the model')
-    # parser.add_argument("--val_split", default='val', help='Choose a split to val the model')
-    # parser.add_argument("--test_split", default='test', help='Choose a split to test the model')
-    # parser.add_argument("--alpha_only", default=False, action='store_true', help='Choose whether to use alpha carbon only')
-    # parser.add_argument("--remove_hydrogen", default=False, action='store_true', help='Choose whether to remove hydrogen elements')
-    # parser.add_argument("--offset_strategy", default=0, type=int, help='choose the offset strategy for node embedding, 0: no offset, 1:only distinguish ligand and protein, 2: distinguish ligand and every amino acid.')
     args = parser.parse_args()
     if args.config != None:
         with open(args.config, 'r') as f:
@@ -301,6 +240,7 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method('forkserver')
     torch.set_float32_matmul_precision('high')
     args = get_argparse()
+    torch.backends.cudnn.benchmark = False
     device = args.device
     if args.wandb:
         name = args.run_name + time.strftime("%Y-%m-%d-%H-%M-%S")
@@ -326,19 +266,53 @@ if __name__ == "__main__":
         pl.seed_everything(seed, workers=True)
         seed += run
         print(f"Starting run {run} with seed {seed}")
-        datamodule = LBADataLightning(
+        hetero = True if (args.model_type=='gearnet' or args.model_type=='hemenet') else False,
+        train_dataset = CustomMultiTaskDataset(split=args.train_split, task=args.train_task, hetero=hetero, alpha_only=args.alpha_only)
+        val_dataset = CustomMultiTaskDataset(split=args.val_split, task=args.train_task, hetero=hetero, alpha_only=args.alpha_only)
+        test_dataset = CustomMultiTaskDataset(split=args.test_split, task=args.train_task, hetero=hetero, alpha_only=args.alpha_only)
+        trainloader = DataLoader(
+            train_dataset,
             batch_size=args.batch_size,
+            shuffle=True,
             num_workers=args.num_workers,
-            drop_last=args.drop_last,
-            # sample_strategy = args.sample_strategy,
-            train_task=args.train_task,
-            train_split=args.train_split,
-            val_split=args.val_split,
-            test_split=args.test_split,
-            hetero=True if (args.model_type=='gearnet' or args.model_type=='hemenet') else False,
-            alpha_only=args.alpha_only
-            # auxiliary=None
+            pin_memory=True,
+            persistent_workers=True,
+            prefetch_factor=1
         )
+        
+        valloader = DataLoader(
+            val_dataset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            pin_memory=True,
+            persistent_workers=True,
+            prefetch_factor=1
+        )
+        
+        testloader = DataLoader(
+            test_dataset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            pin_memory=True,
+            persistent_workers=True,
+            prefetch_factor=1
+        )
+        
+        # datamodule = LBADataLightning(
+        #     batch_size=args.batch_size,
+        #     num_workers=args.num_workers,
+        #     drop_last=args.drop_last,
+        #     # sample_strategy = args.sample_strategy,
+        #     train_task=args.train_task,
+        #     train_split=args.train_split,
+        #     val_split=args.val_split,
+        #     test_split=args.test_split,
+        #     hetero=True if (args.model_type=='gearnet' or args.model_type=='hemenet') else False,
+        #     alpha_only=args.alpha_only
+        #     # auxiliary=None
+        # )
         model = model_cls(
             sdim=args.sdim,
             vdim=args.vdim,
@@ -386,19 +360,20 @@ if __name__ == "__main__":
             gradient_clip_val=args.gradient_clip_val,
             accumulate_grad_batches=args.batch_accum_grad,
             logger=wandb_logger,
-            strategy=DDPStrategy(find_unused_parameters=True)
+            strategy=DDPStrategy(find_unused_parameters=True),
+            num_sanity_val_steps=2
         )
 
         start_time = datetime.now()
 
-        trainer.fit(model, datamodule=datamodule, ckpt_path=args.load_ckpt)
+        trainer.fit(model, trainloader, valloader, ckpt_path=args.load_ckpt)
 
         end_time = datetime.now()
         time_diff = end_time - start_time
         print(f"Training time: {time_diff}")
 
         # running test set
-        _ = trainer.test(ckpt_path="best", datamodule=datamodule)
+        _ = trainer.test(ckpt_path="best", dataloaders=testloader)
         res = model.res
         run_results.append(res)
 

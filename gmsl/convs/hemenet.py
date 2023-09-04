@@ -241,7 +241,7 @@ class AM_EGCL(nn.Module):
         channel_mask = (channel_weights != 0).long() # [N, n_channel]
         channel_sum = channel_mask.sum(-1) # [N]
         pooled_col_coord = (coords[source] * channel_mask[source].unsqueeze(-1)).sum(1) # [|E|, d]
-        pooled_col_coord = pooled_col_coord / channel_sum[source].unsqueeze(-1)
+        pooled_col_coord = pooled_col_coord / (channel_sum[source].unsqueeze(-1) + self.eps)
         coord_diff = coords[target] - pooled_col_coord.unsqueeze(1) # [|E|, n_channel, d]
         
         return radial, coord_diff

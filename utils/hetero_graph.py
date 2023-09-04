@@ -1,11 +1,9 @@
-import torch
 import pandas as pd
-from typing import List
-from typing import Any
-from torch_geometric.typing import OptTensor, SparseTensor
-import torch.nn.functional as F
-from .edge_construction import KNNEdge, SpatialEdge, SequentialEdge
+import torch
+
+from .edge_construction import KNNEdge, SequentialEdge, SpatialEdge
 from .utils import MyData
+
 NUM_ATOM_TYPES = 10
 MAX_CHANNEL = 14 # 4 backbone + sidechain
 # The element mapping for atoms
@@ -48,6 +46,7 @@ amino_acids = lambda x: {"GLY": 0, "ALA": 1, "SER": 2, "PRO": 3, "VAL": 4, "THR"
 def gen_multi_channel_coords(protein_df, ligand_df, protein_seq):
     res_info = protein_df['residue'].values
     protein_pos = torch.as_tensor(protein_df[["x", "y", "z"]].values, dtype=torch.float64)
+    # print("Device of pos tensors: ", protein_pos.device)
     protein_element = torch.as_tensor(list(map(element_mapping, protein_df['element'])), dtype=torch.long)
     element_protein = torch.zeros((len(protein_seq), MAX_CHANNEL)) 
     X_protein = torch.zeros((len(protein_seq), MAX_CHANNEL, 3)) # [N, n_channel, d] 
@@ -57,8 +56,10 @@ def gen_multi_channel_coords(protein_df, ligand_df, protein_seq):
         # Cut the residues that have more than 14 atoms
         if current_channel == 14 and i < len(res_info) - 1 and res_info[i] == res_info[i+1]:
             continue
-        elif current_channel == 14:
+        elif current_channel == 14 and i < len(res_info) - 1:
             current_channel = 0
+            continue
+        elif current_channel == 14 and i == len(res_info) - 1:
             continue
         X_protein[int(item), current_channel, :] = protein_pos[i]
         element_protein[int(item), current_channel] = protein_element[i]
@@ -100,9 +101,10 @@ def hetero_graph_transform(
     """
     A function that can generate graph with different kinds of edges
     """
-    # TODO: 重构此段代码，需要适配alpha only和全原子的两种情况（目前全原子的情况仅对坐标做multichannel的适配, 氨基酸仍然用一个feature来表示）
+    # 目前全原子的情况仅对坐标做multichannel的适配, 氨基酸仍然用一个feature来表示
     protein_df = atom_df[atom_df.resname != "LIG"].reset_index(drop=True)
     ligand_df = atom_df[atom_df.resname == "LIG"].reset_index(drop=True)
+    # start = datetime.now()
     if not alpha_only:
         pos, channel_weights, residue_elements = gen_multi_channel_coords(protein_df, ligand_df, protein_seq) # [N, n_channel, d], [N, n_channel], [N, n_channel] 
         # Retains alpha_carbon for protein_node representation
@@ -114,6 +116,8 @@ def hetero_graph_transform(
         residue_elements = None
         max_channel = 1
         protein_feats = torch.as_tensor(list(map(amino_acids, protein_df['element'])), dtype=torch.long)
+    # end = datetime.now()
+    # print("Time Cost for Generating multichannel feature for ", item_name, " is: ", end - start)
     if len(ligand_df) != 0:
         ligand_feats = torch.as_tensor(list(map(element_mapping, ligand_df['element'])), dtype=torch.long)
         ligand_feats += torch.max(protein_feats) + 1
@@ -124,10 +128,10 @@ def hetero_graph_transform(
     node_feats = torch.zeros((len(node_feats), 31)).scatter_(1, node_feats.unsqueeze(1), 1)
     residues = torch.as_tensor(list(map(amino_acids, protein_seq)), dtype=torch.long)
     # Three types of edges
-    knn = KNNEdge(k=10, min_distance=5, max_channel=max_channel)
-    spatial = SpatialEdge(radius=cutoff, min_distance=5, max_channel=max_channel)
+    knn = KNNEdge(k=5, min_distance=4.5, max_channel=max_channel)
+    # spatial = SpatialEdge(radius=cutoff, min_distance=4.5, max_channel=max_channel)
     sequential = SequentialEdge(max_distance=2)
-    edge_layers = [knn, spatial, sequential]
+    edge_layers = [knn, sequential]
 
     if len(node_feats) != len(pos):
         print(item_name)
@@ -149,11 +153,14 @@ def hetero_graph_transform(
     edge_list = []
     num_edges = []
     num_relations = []
+    # start = datetime.now()
     for layer in edge_layers:
         edges, num_relation = layer(graph)
         edge_list.append(edges)
         num_edges.append(len(edges))
         num_relations.append(num_relation)
+    # end = datetime.now()
+    # print("Time Cost for generating edge for", item_name, " is: ", end - start)
     edge_list = torch.cat(edge_list)
     num_edges = torch.tensor(num_edges)
     num_relations = torch.tensor(num_relations)

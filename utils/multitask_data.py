@@ -1,33 +1,28 @@
+import json
 import os
-import os.path as osp
-from argparse import ArgumentParser
-from typing import Dict, List, Tuple, Union
-
+import pickle
+import re
+from typing import Dict
+import multiprocessing
+from multiprocessing import cpu_count
 import pandas as pd
 import torch
+import datetime
 # from atom3d.datasets import deserialize
 from Bio.PDB import PDBParser
-import re
-import pickle
-import io
-import json
-import gzip
-
-from torch_geometric.data import Dataset
-from torch_geometric.loader import DataLoader
-from tqdm import tqdm
-import logging
-import lmdb
-from pathlib import Path
-import numpy as np
-import openbabel
 from openbabel import pybel
-
-from utils import MyData, prot_graph_transform, hetero_graph_transform
+from torch_geometric.data import Dataset
+from tqdm import tqdm
+from utils import MyData, hetero_graph_transform, prot_graph_transform
 
 pybel.ob.obErrorLog.SetOutputLevel(0)
 atomic_num_dict = lambda x: {1: 'H', 2: 'HE', 3: 'LI', 4: 'BE', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 11: 'NA',
                    15: 'P', 16: 'S', 17: 'Cl', 20:'Ca', 25: 'MN', 26: 'FE', 30: 'ZN', 35: 'Br', 53: 'I', 80: 'Hg'}.get(x, 'Others')
+
+amino_acids_dict = {"GLY": 0, "ALA": 1, "SER": 2, "PRO": 3, "VAL": 4, "THR": 5, "CYS": 6, "ILE": 7, "LEU": 8,
+                  "ASN": 9, "ASP": 10, "GLN": 11, "LYS": 12, "GLU": 13, "MET": 14, "HIS": 15, "PHE": 16,
+                  "ARG": 17, "TYR": 18, "TRP": 19}
+
 
 class CustomMultiTaskDataset(Dataset):
     """
@@ -93,7 +88,7 @@ class CustomMultiTaskDataset(Dataset):
         for item in elements:
             if item in ['CL', 'Cl', 'Br', 'BR', 'AT', 'At', 'F', 'I']:
                 element = 'Halogen'
-            elif item in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI', 'Ca', 'Hg', 'NA']:
+            elif item in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI', 'Ca', 'HG', 'NA']:
                 element = 'Metal'
             elif item[0] in ['C','N','O','S','P','H']:
                 element = item[0]
@@ -102,6 +97,7 @@ class CustomMultiTaskDataset(Dataset):
             unified_elements.append(element)
         df = pd.DataFrame({'element': unified_elements, 'resname':'LIG', 'x': xs, 'y': ys, 'z': zs})
         return df
+
     def process_complexes(self):
         p = PDBParser(QUIET=True)
         nmr_files = []
@@ -120,6 +116,7 @@ class CustomMultiTaskDataset(Dataset):
             if self.alpha_only:
                 print("Only retaining Alpha Carbon atoms for the atom_df")
                 self.retain_alpha_carbon()
+            # self.transform_cmplx()
         else:
             print("Cache not found! Start processing Multitask files...Total Number {}".format(len(self.files)))
             # count = 0
@@ -170,17 +167,17 @@ class CustomMultiTaskDataset(Dataset):
                         # 删除HOH原子
                         if self.remove_hoh and residue.get_resname() == 'HOH':
                             continue
-                        protein_seq.append(residue.get_resname())
                         for atom in residue:
                             # 删除氢原子
                             atom_id = atom.get_id()
-                            if self.remove_hydrogen and atom.get_id().startswith('H') or pattern.match(atom.get_id()) != None:
+                            
+                            if self.remove_hydrogen and residue.get_resname() in amino_acids_dict and (atom.get_id().startswith('H') or pattern.match(atom.get_id()) != None):
                                 continue
-                            if atom_id.startswith('H') or pattern.match(atom.get_id()) != None:
+                            if residue.get_resname() in amino_acids_dict and (atom_id.startswith('H') or pattern.match(atom.get_id()) != None):
                                 element = 'H'
                             elif atom_id[0:2] in ['CL', 'Cl', 'Br', 'BR', 'AT', 'At']:
                                 element = 'Halogen'
-                            elif atom_id[0:2] in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI', 'Ca', 'Hg', 'NA']:
+                            elif atom_id[0:2] in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI', 'Ca', 'HG', 'NA']:
                                 element = 'Metal'
                             elif atom_id[0] in ['F', 'I']:
                                 element = 'Halogen'
@@ -197,6 +194,7 @@ class CustomMultiTaskDataset(Dataset):
                             xs.append(x)
                             ys.append(y)
                             zs.append(z)
+                        protein_seq.append(residue.get_resname())
                         curr_residue += 1
                 protein_df = pd.DataFrame({'chain': chain_ids, 'residue': residues, 'resname': resnames, 'element': elements, 'name': names, 'x': xs, 'y': ys, 'z': zs})
                 processed_complex['atoms_protein'] = protein_df
@@ -208,6 +206,7 @@ class CustomMultiTaskDataset(Dataset):
             print("Structures with Wrong numbers:", len(wrong_number), wrong_number)
             print("Structures with NMR methods:", len(nmr_files), nmr_files)
             print("Corrupted:", len(corrupted), corrupted)
+            # np.s
             pickle.dump(self.processed_complexes, open(self.cache_dir, 'wb'))
             print("Complexes Before Checking:", self.len())
             self.check_dataset()
@@ -217,6 +216,7 @@ class CustomMultiTaskDataset(Dataset):
             if self.alpha_only:
                 print("Only retaining Alpha Carbon atoms for the atom_df")
                 self.retain_alpha_carbon()
+            # self.transform_cmplx()
     def correctness_check(self, chain_uniprot_info, complx):
         #Annotation Correctness Check
         correct = True
@@ -227,10 +227,45 @@ class CustomMultiTaskDataset(Dataset):
                     uniprot_id = chain_uniprot_info[complx['complex_id']][id]
                     labels_uniprot = complx['labels']['uniprots']
                     if uniprot_id not in labels_uniprot:
-                        print("Error, you shouldn't come here!")
+                        # print("Error, you shouldn't come here!")
                         correct = False
-                        print(complx['complex_id'], chain_ids, chain_uniprot_info[complx['complex_id']])
+                        # print(complx['complex_id'], labels_uniprot, chain_uniprot_info[complx['complex_id']])
         return correct
+
+    
+    def transform_part(self, start, end):
+        print("Start Transforming:", start / 56)
+        start = datetime.now()
+        transformed = []
+        for i in tqdm(range(start, end)):
+            transformed.append(self.tranform_func(self.processed_complexes[i]))
+        end = datetime.now()
+        print("End Transforming: ", start / 56, " ,Total time: ", end-start)
+        return transformed
+    
+    def transform_one(self, i):
+        return self.transform_func(self.processed_complexes[i])
+    
+    def transform_cmplx(self):
+        print("Transforming complexes...")
+        cores = cpu_count()
+        with multiprocessing.Pool(processes = cores) as pool:
+            results = list(tqdm(pool.imap(self.transform_one, range(len(self.processed_complexes))), total=len(self.processed_complexes)))
+        # pool = multiprocessing.Pool(cores)
+        # chunk_size = int(len(self.processed_complexes) / cores)
+        # res = []
+        # for i in range(cores):
+        #     start = i * chunk_size
+        #     if i == cores - 1:
+        #         end = len(self.processed_complexes)
+        #     else:
+        #         end = (i + 1) * chunk_size
+        #     # res.append(pool.apply_async(func=self.transform_part,args=(start, end)))
+        
+            # print(str(i) + ' processor started !')
+        # pool.close()
+        # pool.join()
+        
     def cal_length_thres(self, complxes):
         length_list = []
         for complx in complxes:
@@ -250,9 +285,12 @@ class CustomMultiTaskDataset(Dataset):
         info_root = './output_info/uniprot_dict_all.json'
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
-        thres = self.cal_length_thres(self.processed_complexes)
-        if self.split == 'train':
-            thres = 6712
+
+        if self.split == 'train_all':
+            thres = 3000 # This can cut long tail samples to avoid GPU memory expoition.
+        else:
+            thres = self.cal_length_thres(self.processed_complexes)
+        # thres = 3000
         self.processed_complexes = [i for i in tqdm(self.processed_complexes) if self.length_check(i, thres) and self.correctness_check(chain_uniprot_info, i)]
     
     def retain_alpha_carbon(self):
@@ -334,7 +372,12 @@ class CustomMultiTaskDataset(Dataset):
     def len(self):
         return len(self.processed_complexes)
     def get(self, idx):
-        return self.transform_func(self.processed_complexes[idx])
+        # start = datetime.now()
+        item = self.transform_func(self.processed_complexes[idx])
+        # item = self.processed_complexes[idx]
+        # end = datetime.now()
+        # print("Time Cost for index:", idx, " is ", end - start)
+        return item
 
 class GNNTransformGO(object):
     def __init__(
@@ -755,6 +798,11 @@ class GNNTransformMultiTask(object):
             graph = prot_graph_transform(
                 atom_df=atom_df, cutoff=self.cutoff, max_num_neighbors=self.max_num_neighbors, flag=lig_flag, super_node=self.supernode, offset_strategy=self.offset_strategy
             )
+            
+        if lig_flag.shape[0] != graph.x.shape[0]:
+            print(len(lig_flag), len(graph.x))
+            print(item['complex_id'])
+            raise ValueError
         lba = labels['lba']
         ppi = labels['ppi']
         ec = labels['ec']

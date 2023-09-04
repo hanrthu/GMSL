@@ -13,6 +13,7 @@ weight_decay: 0
 max_epochs: 50
 enhanced: False
 readout: weighted_feature
+# [weighted_feature, task_aware_attention]
 # 这些都是EQGAT需要的参数，之后优化掉
 cross_ablate: False
 no_feat_attn: False
