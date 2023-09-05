@@ -6,11 +6,12 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.9.12
+  - python=3.11.5
   - pytorch=2.0.1
   - pytorch-cuda=11.8
-  - torchaudio=2.0.2
-  - torchvision=0.15.2
+  - llvm-openmp<16  # https://github.com/pytorch/pytorch/issues/99625
+#  - torchaudio=2.0.2
+#  - torchvision=0.15.2
   - pytorch-lightning=2.0.3
   - pip=23.2.1
   - pandas=2.0.3
@@ -19,7 +20,8 @@ dependencies:
   - pip:
     - torch-geometric==2.3.1
     - torch-scatter==2.1.1
-    - torchdrug==0.2.1
+    - torch-cluster # https://github.com/rusty1s/pytorch_cluster/issues/187
+#    - torchdrug==0.2.1
     - e3nn==0.5.1
     - atom3d==0.2.6
     - torch-sparse==0.6.17

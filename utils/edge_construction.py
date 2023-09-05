@@ -3,11 +3,8 @@ import os
 import torch
 from torch_cluster import knn_graph, radius_graph
 
-# cuda_num = os.getpid() % 2 + 1
-cuda_num = 0
-
 # @torch.no_grad()
-def block_knn_graph(pos, channel_weights, k, eps=1e-10, max_channel=1):
+def block_knn_graph(pos, channel_weights, k, eps=1e-10, max_channel=1, cuda_id: int = 0):
     '''
         pos: [N, n_channel, d]
         channel_weights: [N, n_channel]
@@ -24,9 +21,8 @@ def block_knn_graph(pos, channel_weights, k, eps=1e-10, max_channel=1):
     else:
         # Implementation of block knn edge construction
         BIGINT = 1e10
-        pos = pos.to(cuda_num)
-        channel_weights = channel_weights.to(cuda_num)
-        node_idx = torch.arange(0, len(pos)).to(cuda_num)
+        channel_weights = channel_weights
+        node_idx = torch.arange(0, len(pos))
         # node_idx = torch.arange(0, len(pos))
         row = node_idx.unsqueeze(-1).repeat(1, len(pos)).flatten()
         col = node_idx.repeat(len(pos))
@@ -62,7 +58,7 @@ def block_knn_graph(pos, channel_weights, k, eps=1e-10, max_channel=1):
 @torch.no_grad()
 def block_radius_graph(pos, channel_weights, r, max_num_neighbors, eps=1e-10, max_channel=1):
     if max_channel == 1:
-        pos = pos.squeeze().to(cuda_num)
+        pos = pos.squeeze()
         edge_list = radius_graph(pos, r=r, max_num_neighbors=max_num_neighbors).t()
         node_in, node_out = edge_list.t()[:2]
         mask = (pos[node_in] - pos[node_out]).norm(dim=-1) < eps
@@ -71,9 +67,8 @@ def block_radius_graph(pos, channel_weights, r, max_num_neighbors, eps=1e-10, ma
     else:
         # Implementation of block knn edge construction
         BIGINT = 1e10
-        pos = pos.to(cuda_num)
-        channel_weights = channel_weights.to(cuda_num)
-        node_idx = torch.arange(0, len(pos)).to(cuda_num)
+        channel_weights = channel_weights
+        node_idx = torch.arange(0, len(pos))
         # node_idx = torch.arange(0, len(pos))
         row = node_idx.unsqueeze(-1).repeat(1, len(pos)).flatten()
         col = node_idx.repeat(len(pos))
@@ -129,7 +124,7 @@ class KNNEdge(object):
             (Tensor, int): edge list of shape :math:`(|E|, 3)`, number of relations
         """
         edge_list = block_knn_graph(graph.pos, graph.channel_weights, k=self.k, eps=self.eps, max_channel=self.max_channel)
-        relation = torch.zeros(len(edge_list), 1, dtype=torch.long).to(cuda_num)
+        relation = torch.zeros(len(edge_list), 1, dtype=torch.long)
         # relation = torch.zeros(len(edge_list), 1, dtype=torch.long)
         edge_list = torch.cat([edge_list, relation], dim=-1)
         # atom2residue = torch.arange(0, len(graph.pos))
@@ -143,8 +138,8 @@ class KNNEdge(object):
             node_in, node_out = edge_list.t()[:2]
             mask = (node_in - node_out).abs() > self.max_distance
             edge_list = edge_list[~mask]
-        edge_list = edge_list.cpu()
-        torch.cuda.empty_cache()
+        # edge_list = edge_list.cpu()
+        # torch.cuda.empty_cache()
         return edge_list, 1
 
 class SpatialEdge(object):
@@ -177,7 +172,7 @@ class SpatialEdge(object):
         """
         edge_list = block_radius_graph(graph.pos, graph.channel_weights, r=self.radius, max_num_neighbors=self.max_num_neighbors,
                                        eps=self.eps, max_channel=self.max_channel)
-        relation = torch.zeros(len(edge_list), 1, dtype=torch.long).to(cuda_num)
+        relation = torch.zeros(len(edge_list), 1, dtype=torch.long)
         # relation = torch.zeros(len(edge_list), 1, dtype=torch.long)
         edge_list = torch.cat([edge_list, relation], dim=-1)
         # atom2residue = torch.arange(0, len(graph.pos))

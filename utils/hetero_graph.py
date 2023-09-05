@@ -96,7 +96,7 @@ def hetero_graph_transform(
     feat_col: str = "resname",
     init_dtype: torch.dtype = torch.float64,
     super_node: bool = False,
-    alpha_only = False
+    alpha_only = False,
     ):
     """
     A function that can generate graph with different kinds of edges
@@ -106,7 +106,7 @@ def hetero_graph_transform(
     ligand_df = atom_df[atom_df.resname == "LIG"].reset_index(drop=True)
     # start = datetime.now()
     if not alpha_only:
-        pos, channel_weights, residue_elements = gen_multi_channel_coords(protein_df, ligand_df, protein_seq) # [N, n_channel, d], [N, n_channel], [N, n_channel] 
+        pos, channel_weights, residue_elements = gen_multi_channel_coords(protein_df, ligand_df, protein_seq) # [N, n_channel, d], [N, n_channel], [N, n_channel]
         # Retains alpha_carbon for protein_node representation
         max_channel = MAX_CHANNEL
         protein_feats = torch.as_tensor(list(map(amino_acids, protein_seq)), dtype=torch.long)
