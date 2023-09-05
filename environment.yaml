@@ -1,33 +1,32 @@
 name: gmsl-test
 channels:
-  - pyg
-  - pytorch
-  - nvidia
-  - conda-forge
-  - defaults
+- conda-forge
+- pytorch
+- nvidia
+- pyg
+- defaults
 dependencies:
-  - python=3.11.5
-  - pytorch=2.0.1
-  - pytorch-cuda=11.8
-  - llvm-openmp<16  # https://github.com/pytorch/pytorch/issues/99625
-#  - torchaudio=2.0.2
-#  - torchvision=0.15.2
-  - pytorch-lightning=2.0.3
-  - pip=23.2.1
-  - pandas=2.0.3
-  - openbabel=3.1.1
-  - ipykernel=6.25.0
-  - pip:
-    - torch-geometric==2.3.1
-    - torch-scatter==2.1.1
-    - torch-cluster # https://github.com/rusty1s/pytorch_cluster/issues/187
-#    - torchdrug==0.2.1
-    - e3nn==0.5.1
-    - atom3d==0.2.6
-    - torch-sparse==0.6.17
-    - easydict==1.10
-    - wandb==0.15.8
-    - bs4==0.0.1
-    - selenium==4.11.2
-    - openpyxl==3.1.2
-    - -f https://pytorch-geometric.com/whl/torch-2.0.1%2Bcu118.html
+- python=3.11.5
+- pytorch::pytorch=2.0.1
+- pytorch::pytorch-cuda=11.8
+- llvm-openmp<16  # https://github.com/pytorch/pytorch/issues/99625
+- einops=0.6.1
+- pytorch-lightning=2.0.8
+- pyg::pyg
+- wandb=0.15.9
+- pandas=2.1.0
+- openbabel=3.1.1
+#  - ipykernel=6.25.0
+- pip=23.2.1
+- pip:
+  - torch-cluster
+  - torch-scatter
+  - torch-sparse
+  - -f https://data.pyg.org/whl/torch-2.0.1%2Bcu118.html
+#  - torchdrug==0.2.1
+  - e3nn==0.5.1
+  - atom3d==0.2.6
+  - easydict==1.10
+  - bs4==0.0.1
+  - selenium==4.11.2
+  - openpyxl==3.1.2

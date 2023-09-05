@@ -1,20 +1,14 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
-import torch
-import pandas as pd
-from atom3d.util.graph import mol_atoms, one_of_k_encoding_unk
-from torch_geometric.data import Data
-import torch_cluster
-from typing import List
-import math
-from tqdm import tqdm
-from typing import Any
-from torch_geometric.typing import OptTensor, SparseTensor
-import torch.nn.functional as F
-import yaml
-import jinja2
+from typing import Any, List
+
 import easydict
-from .edge_construction import KNNEdge, SpatialEdge, SequentialEdge
+import jinja2
+import math
+import pandas as pd
+import torch
+import torch_cluster
+from torch_geometric.data import Data
+from torch_geometric.typing import OptTensor, SparseTensor
+import yaml
 
 # https://github.com/drorlab/gvp-pytorch/blob/main/gvp/atom3d.py
 NUM_ATOM_TYPES = 10
@@ -97,6 +91,9 @@ def load_config(cfg_file, context=None):
 
 # Modified torch_geometric.data.data for better representation ability
 class MyData(Data):
+    chain: pd.Series
+    channel_weights: torch.Tensor
+
     def __init__(
         self, x: OptTensor = None, edge_index: OptTensor = None,
                 edge_attr: OptTensor = None, y: OptTensor = None,
