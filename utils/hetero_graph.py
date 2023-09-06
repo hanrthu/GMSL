@@ -73,7 +73,7 @@ def gen_multi_channel_coords(
         mask_protein[i, :num_channels] = 1
 
     if len(ligand_df) > 0:
-        ligand_coords = torch.as_tensor(ligand_df[["x", "y", "z"]].to_numpy(), dtype=torch.float64, device=device)
+        ligand_coords = torch.as_tensor(ligand_df[['x', 'y', 'z']].to_numpy(), dtype=torch.float64, device=device)
         ligand_element = torch.as_tensor(ligand_df['element'].map(element_mapping).array, dtype=torch.long, device=device)
         X_ligand = ligand_coords.new_zeros((len(ligand_df), MAX_CHANNEL, 3))
         element_ligand = ligand_element.new_zeros((len(ligand_df), MAX_CHANNEL))

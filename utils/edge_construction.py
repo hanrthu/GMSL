@@ -183,7 +183,6 @@ class SequentialEdge(object):
         #注：相比于原版，这里省了很多东西，主要是因为Gearnet只用到了alpha碳，如果要用到其他原子，之后还需要根据原版进一步拓展
         #注 0815：好像无所谓，只需要在氨基酸层级表示序列就行
         edge_list = []
-        # TODO: 处理 ligand
         chain = graph.chain
         for i in range(-self.max_distance, self.max_distance + 1):
             if i > 0:
@@ -196,7 +195,7 @@ class SequentialEdge(object):
                 slice_out = slice(i)
             # exclude cross-chain edges
             is_same_chain = chain[slice_in] == chain[slice_out]
-            node_all = torch.arange(len(graph.pos), device=graph.pos.device)
+            node_all = torch.arange(len(chain), device=graph.pos.device)
             node_in = node_all[slice_in][is_same_chain]
             node_out = node_all[slice_out][is_same_chain]
             relation = torch.full_like(node_in, i + self.max_distance)
