@@ -58,7 +58,8 @@ def gen_multi_channel_coords(
     X_protein = protein_pos.new_zeros((len(protein_seq), MAX_CHANNEL, 3))  # [N, n_channel, d]
     mask_protein = X_protein.new_zeros(X_protein.shape[:-1])
     start_idx = torch.arange(len(res_info) - 1, device=device)[res_info[:-1] != res_info[1:]] + 1
-    chain_id = atom_chain_id.gather(1, torch.cat([start_idx.new_tensor(0), start_idx]))
+    chain_id = atom_chain_id.gather(0, torch.cat([start_idx.new_tensor([0]), start_idx]))
+    assert len(chain_id) == len(X_protein)
     start_idx = start_idx.cpu()
     for i, (pos, element) in enumerate(zip(
         protein_pos.tensor_split(start_idx),
@@ -88,8 +89,8 @@ def gen_multi_channel_coords(
         X = X_protein
         mask = mask_protein
         element = element_protein
-    return X, mask, element
-    
+    return X, mask, element, chain_id
+
 # Debug Passed
 def hetero_graph_transform(
     item_name: str,
@@ -110,7 +111,7 @@ def hetero_graph_transform(
     ligand_df: pd.DataFrame = atom_df[atom_df.resname == "LIG"].reset_index(drop=True)
     # start = datetime.now()
     if not alpha_only:
-        pos, channel_weights, residue_elements = gen_multi_channel_coords(protein_df, ligand_df, protein_seq, device) # [N, n_channel, d], [N, n_channel], [N, n_channel]
+        pos, channel_weights, residue_elements, chain = gen_multi_channel_coords(protein_df, ligand_df, protein_seq, device) # [N, n_channel, d], [N, n_channel], [N, n_channel]
         # Retains alpha_carbon for protein_node representation
         max_channel = MAX_CHANNEL
         protein_feats = torch.as_tensor(list(map(amino_acids, protein_seq)), dtype=torch.long, device=device)
@@ -153,7 +154,7 @@ def hetero_graph_transform(
         channel_weights=channel_weights.long(),
         num_residues = len(residues),
         edge_feature=None,
-        chain=atom_df['chain'],
+        chain=chain,
     )
     edge_list = []
     num_edges = []

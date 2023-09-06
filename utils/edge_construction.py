@@ -182,27 +182,24 @@ class SequentialEdge(object):
         """
         #注：相比于原版，这里省了很多东西，主要是因为Gearnet只用到了alpha碳，如果要用到其他原子，之后还需要根据原版进一步拓展
         #注 0815：好像无所谓，只需要在氨基酸层级表示序列就行
-        # num_node = len(graph.x)
-        # num_residue = len(graph.x)
-        atom2residue = range(len(graph.pos))
         edge_list = []
-        device = graph.pos.device
-        chain_id = torch.as_tensor(graph.chain.factorize()[0], device=device)
+        # TODO: 处理 ligand
+        chain = graph.chain
         for i in range(-self.max_distance, self.max_distance + 1):
             if i > 0:
-                node_in = atom2residue[:-i]
-                node_out = atom2residue[i:]
+                slice_in = slice(-i)
+                slice_out = slice(i, None)
             elif i == 0:
-                node_in = atom2residue
-                node_out = atom2residue
+                slice_in = slice_out = slice(None)
             else:
-                node_in = atom2residue[-i:]
-                node_out = atom2residue[:i]
+                slice_in = slice(-i, None)
+                slice_out = slice(i)
             # exclude cross-chain edges
-            is_same_chain = (graph.chain[node_in].reset_index(drop=True) == graph.chain[node_out].reset_index(drop=True))
-            node_in = torch.as_tensor(node_in, dtype=torch.long, device=graph.pos.device)[is_same_chain]
-            node_out = torch.as_tensor(node_out, dtype=torch.long, device=graph.pos.device)[is_same_chain]
-            relation = torch.full((len(node_in), ), i + self.max_distance, dtype=torch.long, device=graph.pos.device)
+            is_same_chain = chain[slice_in] == chain[slice_out]
+            node_all = torch.arange(len(graph.pos), device=graph.pos.device)
+            node_in = node_all[slice_in][is_same_chain]
+            node_out = node_all[slice_out][is_same_chain]
+            relation = torch.full_like(node_in, i + self.max_distance)
             edges = torch.stack([node_in, node_out, relation], dim=-1)
             edge_list.append(edges)
 

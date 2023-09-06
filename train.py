@@ -359,8 +359,8 @@ if __name__ == "__main__":
             gradient_clip_val=args.gradient_clip_val,
             accumulate_grad_batches=args.batch_accum_grad,
             logger=wandb_logger,
-            # strategy=DDPStrategy(find_unused_parameters=True),
-            num_sanity_val_steps=0,
+            strategy=DDPStrategy(find_unused_parameters=True),
+            num_sanity_val_steps=2,
             benchmark=False,
         )
 

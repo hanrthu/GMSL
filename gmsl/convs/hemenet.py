@@ -117,7 +117,6 @@ class IEConvLayer(nn.Module):
         edge_weight = edge_weights.unsqueeze(-1)
         # node_out是入边
         if self.aggregate_func == "sum":
-            torch.scatter_add()
             update = scatter_add(message * edge_weight, node_out, dim=0, dim_size=num_node) 
         else:
             raise ValueError("Unknown aggregation function `%s`" % self.aggregate_func)
