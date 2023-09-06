@@ -9,8 +9,6 @@ from torch_scatter import scatter_add
 import gmsl.convs.gearnet as layer
 from collections import Mapping, Sequence
 
-from torchdrug import core, layers, tasks, metrics, utils
-
 class GearNetIEConv(nn.Module):
 
     def __init__(self, input_dim, embedding_dim, hidden_dims, num_relation, edge_input_dim=None,

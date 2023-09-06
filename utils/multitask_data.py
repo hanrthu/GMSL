@@ -1,18 +1,23 @@
+from collections.abc import Callable
+import datetime
+import itertools as it
 import json
 import os
+from pathlib import Path
 import pickle
 import re
 from typing import Dict
-import multiprocessing
-from multiprocessing import cpu_count
-import pandas as pd
-import torch
-import datetime
+
 # from atom3d.datasets import deserialize
 from Bio.PDB import PDBParser
 from openbabel import pybel
+import pandas as pd
+import torch
+from torch.types import Device
 from torch_geometric.data import Dataset
 from tqdm import tqdm
+from tqdm.contrib.concurrent import process_map
+
 from utils import MyData, hetero_graph_transform, prot_graph_transform
 
 pybel.ob.obErrorLog.SetOutputLevel(0)
@@ -23,14 +28,13 @@ amino_acids_dict = {"GLY": 0, "ALA": 1, "SER": 2, "PRO": 3, "VAL": 4, "THR": 5, 
                   "ASN": 9, "ASP": 10, "GLN": 11, "LYS": 12, "GLU": 13, "MET": 14, "HIS": 15, "PHE": 16,
                   "ARG": 17, "TYR": 18, "TRP": 19}
 
-
 class CustomMultiTaskDataset(Dataset):
     """
     The Custom MultiTask Dataset with uniform labels
     """
     def __init__(self, root_dir: str = './datasets/MultiTask', label_dir: str = './datasets/MultiTask/uniformed_labels.json',
                 remove_hoh = True, remove_hydrogen = True, cutoff = 6, split : str = 'train', task = 'multi', hetero = False, alpha_only=False):
-        super(CustomMultiTaskDataset, self).__init__(root_dir)
+        super().__init__(root_dir)
         print("Initializing MultiTask Dataset...")
         self.root_dir = root_dir
         self.cache_dir = os.path.join(root_dir, "{}.cache".format(split))
@@ -62,6 +66,7 @@ class CustomMultiTaskDataset(Dataset):
         self.split = split
         self.task = task
         self.process_complexes()
+
     def find_structure(self, item):
         self.ec_files = os.listdir(self.ec_root)
         self.go_files = os.listdir(self.go_root)
@@ -99,7 +104,6 @@ class CustomMultiTaskDataset(Dataset):
         return df
 
     def process_complexes(self):
-        p = PDBParser(QUIET=True)
         nmr_files = []
         wrong_number = []
         self.processed_complexes = []
@@ -116,8 +120,9 @@ class CustomMultiTaskDataset(Dataset):
             if self.alpha_only:
                 print("Only retaining Alpha Carbon atoms for the atom_df")
                 self.retain_alpha_carbon()
-            # self.transform_cmplx()
+            self.transform_cmplx()
         else:
+            p = PDBParser(QUIET=True)
             print("Cache not found! Start processing Multitask files...Total Number {}".format(len(self.files)))
             # count = 0
             for score_idx, item in enumerate(tqdm(self.files)):
@@ -217,6 +222,7 @@ class CustomMultiTaskDataset(Dataset):
                 print("Only retaining Alpha Carbon atoms for the atom_df")
                 self.retain_alpha_carbon()
             # self.transform_cmplx()
+
     def correctness_check(self, chain_uniprot_info, complx):
         #Annotation Correctness Check
         correct = True
@@ -242,30 +248,19 @@ class CustomMultiTaskDataset(Dataset):
         end = datetime.now()
         print("End Transforming: ", start / 56, " ,Total time: ", end-start)
         return transformed
-    
-    def transform_one(self, i):
-        return self.transform_func(self.processed_complexes[i])
-    
+
     def transform_cmplx(self):
         print("Transforming complexes...")
-        cores = cpu_count()
-        with multiprocessing.Pool(processes = cores) as pool:
-            results = list(tqdm(pool.imap(self.transform_one, range(len(self.processed_complexes))), total=len(self.processed_complexes)))
-        # pool = multiprocessing.Pool(cores)
-        # chunk_size = int(len(self.processed_complexes) / cores)
-        # res = []
-        # for i in range(cores):
-        #     start = i * chunk_size
-        #     if i == cores - 1:
-        #         end = len(self.processed_complexes)
-        #     else:
-        #         end = (i + 1) * chunk_size
-        #     # res.append(pool.apply_async(func=self.transform_part,args=(start, end)))
-        
-            # print(str(i) + ' processor started !')
-        # pool.close()
-        # pool.join()
-        
+        process_map(
+            _apply_cuda,
+            it.repeat(self.transform_func), self.processed_complexes, it.cycle(range(torch.cuda.device_count())),
+            max_workers=4, ncols=80, total=len(self.processed_complexes), chunksize=1,
+        )
+        # for i, (x, cuda_id) in enumerate(zip(tqdm(self.processed_complexes), it.cycle(range(torch.cuda.device_count())))):
+        #     self.processed_complexes[i] = self._apply_cuda(x, cuda_id)
+        # with multiprocessing.Pool(processes = cores) as pool:
+        #     results = list(tqdm(pool.imap(self.transform_one, range(len(self.processed_complexes))), total=len(self.processed_complexes)))
+
     def cal_length_thres(self, complxes):
         length_list = []
         for complx in complxes:
@@ -369,8 +364,10 @@ class CustomMultiTaskDataset(Dataset):
             self.transform_func = GNNTransformAffinity(task=self.task, hetero=self.hetero, alpha_only=self.alpha_only)
         else:
             self.transform_func = GNNTransformMultiTask(hetero=self.hetero, alpha_only=self.alpha_only)
+
     def len(self):
         return len(self.processed_complexes)
+
     def get(self, idx):
         # start = datetime.now()
         item = self.transform_func(self.processed_complexes[idx])
@@ -720,6 +717,7 @@ class GNNTransformEC(object):
         # print("Task Type:", graph.type)
         return graph
 
+chain_uniprot_info = json.loads(Path('output_info/uniprot_dict_all.json').read_bytes())
 
 class GNNTransformMultiTask(object):
     def __init__(
@@ -740,12 +738,7 @@ class GNNTransformMultiTask(object):
         self.hetero = hetero
         self.alpha_only=alpha_only
 
-    def __call__(self, item: Dict) -> MyData:
-        # print("Using Transform LBA")
-        info_root = './output_info/uniprot_dict_all.json'
-        with open(info_root, 'r') as f:
-            chain_uniprot_info = json.load(f)
-        
+    def __call__(self, item: Dict, device: Device) -> MyData:
         ligand_df = item["atoms_ligand"]
         protein_df = item["atoms_protein"]
         residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
@@ -760,14 +753,14 @@ class GNNTransformMultiTask(object):
             atom_df = atom_df[atom_df.element != "H"].reset_index(drop=True)
             res_ligand_df = res_ligand_df[res_ligand_df.element != "H"].reset_index(drop=True)
         # 此时ligand 所对应的atom被自动设置为0
-        lig_flag = torch.zeros(res_ligand_df.shape[0], dtype=torch.long)
+        lig_flag = torch.zeros(res_ligand_df.shape[0], dtype=torch.long, device=device)
         chain_ids = list(set(protein_df['chain']))
         uniprot_ids = []
         labels = item["labels"]
         pf_ids = []
         #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
         for i, id in enumerate(chain_ids):
-            lig_flag[torch.tensor(list(res_ligand_df['chain'] == id))] = i + 1
+            lig_flag[torch.as_tensor(res_ligand_df['chain'].array == id, device=device)] = i + 1
             if '-' in item['complex_id']:
                 pf_ids.append(0)
                 break
@@ -792,7 +785,12 @@ class GNNTransformMultiTask(object):
         # 找个办法把chain和Uniprot对应起来，然后就可以查了
         if self.hetero:
             graph = hetero_graph_transform(
-                item_name = item['complex_id'], atom_df=atom_df, super_node=self.supernode, protein_seq=item['protein_seq'], alpha_only=self.alpha_only
+                item_name=item['complex_id'],
+                atom_df=atom_df,
+                super_node=self.supernode,
+                protein_seq=item['protein_seq'],
+                alpha_only=self.alpha_only,
+                device=device,
             )
         else:
             graph = prot_graph_transform(

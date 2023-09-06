@@ -10,8 +10,6 @@ from torch_scatter import scatter_add
 import gmsl.convs.hemenet as layer
 from collections import Mapping, Sequence
 
-from torchdrug import core, layers, tasks, metrics, utils
-
 class HemeNet(nn.Module):
     def __init__(self, input_dim, embedding_dim, hidden_dims, num_relation, channel_dim, channel_nf, edge_input_dim=None,
                  batch_norm=False, activation=nn.SiLU(), concat_hidden=False, short_cut=True, 

@@ -240,7 +240,6 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method('forkserver')
     torch.set_float32_matmul_precision('high')
     args = get_argparse()
-    torch.backends.cudnn.benchmark = False
     device = args.device
     if args.wandb:
         name = args.run_name + time.strftime("%Y-%m-%d-%H-%M-%S")
@@ -349,7 +348,7 @@ if __name__ == "__main__":
             devices=device if device != "cpu" else None,
             accelerator="gpu" if device != "cpu" else "cpu",
             max_epochs=args.max_epochs,
-            precision=32,
+            precision='16-mixed',
             # amp_backend="native",
             callbacks=[
                 checkpoint_callback,
@@ -361,7 +360,8 @@ if __name__ == "__main__":
             accumulate_grad_batches=args.batch_accum_grad,
             logger=wandb_logger,
             strategy=DDPStrategy(find_unused_parameters=True),
-            num_sanity_val_steps=2
+            num_sanity_val_steps=2,
+            benchmark=False,
         )
 
         start_time = datetime.now()
