@@ -233,13 +233,16 @@ def get_argparse():
     print("Config Dict:", args)
     return args
 
-
-if __name__ == "__main__":
-
+def init_pytorch_settings(args):
     # Multiprocess Setting to speedup dataloader
     torch.multiprocessing.set_start_method('forkserver')
+    torch.multiprocessing.set_sharing_strategy('file_system')
     torch.set_float32_matmul_precision('high')
+    torch.set_num_threads(4)
+
+if __name__ == "__main__":
     args = get_argparse()
+    init_pytorch_settings(args)
     device = args.device
     if args.wandb:
         name = args.run_name + time.strftime("%Y-%m-%d-%H-%M-%S")
@@ -266,17 +269,17 @@ if __name__ == "__main__":
         seed += run
         print(f"Starting run {run} with seed {seed}")
         hetero = True if (args.model_type=='gearnet' or args.model_type=='hemenet') else False,
-        train_dataset = CustomMultiTaskDataset(split=args.train_split, task=args.train_task, hetero=hetero, alpha_only=args.alpha_only)
-        val_dataset = CustomMultiTaskDataset(split=args.val_split, task=args.train_task, hetero=hetero, alpha_only=args.alpha_only)
-        test_dataset = CustomMultiTaskDataset(split=args.test_split, task=args.train_task, hetero=hetero, alpha_only=args.alpha_only)
+        train_dataset = CustomMultiTaskDataset(split=args.train_split, task=args.train_task, hetero=hetero, alpha_only=args.alpha_only, graph_cache_dir=args.graph_cache_dir)
+        val_dataset = CustomMultiTaskDataset(split=args.val_split, task=args.train_task, hetero=hetero, alpha_only=args.alpha_only, graph_cache_dir=args.graph_cache_dir)
+        test_dataset = CustomMultiTaskDataset(split=args.test_split, task=args.train_task, hetero=hetero, alpha_only=args.alpha_only, graph_cache_dir=args.graph_cache_dir)
         trainloader = DataLoader(
             train_dataset,
             batch_size=args.batch_size,
             shuffle=True,
             num_workers=args.num_workers,
             pin_memory=True,
-            persistent_workers=True,
-            prefetch_factor=1
+            persistent_workers=True if args.num_workers > 0 else False,
+            # prefetch_factor=2
         )
         
         valloader = DataLoader(
@@ -285,8 +288,8 @@ if __name__ == "__main__":
             shuffle=False,
             num_workers=args.num_workers,
             pin_memory=True,
-            persistent_workers=True,
-            prefetch_factor=1
+            persistent_workers=True if args.num_workers > 0 else False,
+            # prefetch_factor=2
         )
         
         testloader = DataLoader(
@@ -295,8 +298,8 @@ if __name__ == "__main__":
             shuffle=False,
             num_workers=args.num_workers,
             pin_memory=True,
-            persistent_workers=True,
-            prefetch_factor=1
+            persistent_workers=True if args.num_workers > 0 else False,
+            # prefetch_factor=2
         )
         
         # datamodule = LBADataLightning(
@@ -335,7 +338,7 @@ if __name__ == "__main__":
         )
         # 根据不同任务设置选择最优模型的方法
         monitor, mode = choose_monitor(args.train_task)
-        
+
         checkpoint_callback = ModelCheckpoint(
             monitor=monitor,
             filename="model-{epoch:02d}-{val_eloss:.4f}",
@@ -363,9 +366,9 @@ if __name__ == "__main__":
             num_sanity_val_steps=2,
             benchmark=False,
         )
-
+        # print("Default Type:", torch.get_default_dtype())
         start_time = datetime.now()
-
+        print("Precision:", args.precision)
         trainer.fit(model, trainloader, valloader, ckpt_path=args.load_ckpt)
 
         end_time = datetime.now()

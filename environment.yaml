@@ -1,4 +1,4 @@
-name: gmsl-test
+name: gmsl
 channels:
 - conda-forge
 - pytorch

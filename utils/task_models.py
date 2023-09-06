@@ -5,6 +5,7 @@ import pytorch_lightning as pl
 from gmsl.model import BaseModel, SEGNNModel
 from torch_geometric.data import Batch
 from typing import Tuple
+import torch.nn.functional as F
 
 class MultiTaskModel(pl.LightningModule):
     def __init__(
@@ -57,7 +58,8 @@ class MultiTaskModel(pl.LightningModule):
         self.l1 = nn.L1Loss()
         self.l2 = nn.MSELoss()
         self.l2_aux = nn.MSELoss()
-        self.bce = nn.BCELoss()
+        self.bce = F.binary_cross_entropy_with_logits
+        self.sigmoid = F.sigmoid
         self.task = task
         self.training_step_outputs =[]
         self.validation_step_outputs =[]
@@ -125,6 +127,8 @@ class MultiTaskModel(pl.LightningModule):
         ]
 
         return [optimizer], schedulers
+    
+    @torch.no_grad()
     def cal_fmax(self, preds, y_true):
         thresholds = torch.linspace(0, 0.95, 20)
         fs = []
@@ -358,7 +362,7 @@ class MultiTaskModel(pl.LightningModule):
             valid_res[log_l1] = round(mae, 4)
     
         for i, (property_name, property_num) in enumerate(self.property_info.items()):
-            property_pred = torch.concat([x["property_pred"][i] for x in self.validation_step_outputs])
+            property_pred = torch.concat([self.sigmoid(x["property_pred"][i]) for x in self.validation_step_outputs])
             property_true = torch.concat([x["property_true"][i] for x in self.validation_step_outputs])
             bce_loss = self.bce(property_pred, property_true).item()
             bce_losses += bce_loss
@@ -395,7 +399,7 @@ class MultiTaskModel(pl.LightningModule):
             # test_res[log_rmse] = round(rmse, 4)
             test_res[log_l1] = round(mae, 4)
         for i, (property_name, property_num) in enumerate(self.property_info.items()):
-            property_pred = torch.concat([x["property_pred"][i] for x in self.test_step_outputs])
+            property_pred = torch.concat([self.sigmoid(x["property_pred"][i]) for x in self.test_step_outputs])
             property_true = torch.concat([x["property_true"][i] for x in self.test_step_outputs])
             bce_loss = self.bce(property_pred, property_true).item()
             f_max = self.cal_fmax(property_pred, property_true)
@@ -659,7 +663,8 @@ class PropertyModel(pl.LightningModule):
         self.weight_decay = weight_decay
         self.max_epochs = max_epochs
         self.task = task
-        self.bce = nn.BCELoss()
+        self.bce = nn.BCEWithLogitsLoss()
+        self.sigmoid = F.sigmoid
         self.training_step_outputs =[]
         self.validation_step_outputs =[]
         self.test_step_outputs = []
@@ -724,6 +729,8 @@ class PropertyModel(pl.LightningModule):
         ]
 
         return [optimizer], schedulers
+    
+    @torch.no_grad()
     def cal_fmax(self, preds, y_true):
         # print("cal fmax:", y_pred.shape, y_true.shape)
         thresholds = torch.linspace(0, 0.95, 20)
@@ -832,7 +839,7 @@ class PropertyModel(pl.LightningModule):
         self.log("train_eloss", avg_loss, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
 
     def on_validation_epoch_end(self):
-        property_pred = torch.concat([x["property_pred"] for x in self.validation_step_outputs])
+        property_pred = torch.concat([self.sigmoid(x["property_pred"]) for x in self.validation_step_outputs])
         property_true = torch.concat([x["property_true"] for x in self.validation_step_outputs])
         bce_loss = self.bce(property_pred, property_true)
         if self.task in ['ec', 'bp', 'mf', 'cc']:
@@ -848,7 +855,7 @@ class PropertyModel(pl.LightningModule):
             self.log("val_loss", val_loss, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
             self.log("val_fmax_all", fmax_all, on_step=False, on_epoch=True, prog_bar=False,sync_dist=True)
         else:
-            
+            # GO
             fmax_mf, fmax_bp, fmax_cc, fmax_all = self.cal_fmax(property_pred, property_true)
             val_loss = 10 * bce_loss
             to_print = (
@@ -869,7 +876,7 @@ class PropertyModel(pl.LightningModule):
         self.validation_step_outputs.clear()
 
     def on_test_epoch_end(self):
-        property_pred = torch.concat([x["property_pred"] for x in self.test_step_outputs])
+        property_pred = torch.concat([self.sigmoid(x["property_pred"]) for x in self.test_step_outputs])
         property_true = torch.concat([x["property_true"] for x in self.test_step_outputs])
         if self.task in ['ec', 'bp', 'mf', 'cc']:
             fmax_all = self.cal_fmax(property_pred, property_true)

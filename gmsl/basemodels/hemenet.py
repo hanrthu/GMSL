@@ -1,4 +1,4 @@
-# This script defines an Heterougeneous Multitask Equivariant Network(HeMENet) deal with protein related tasks.
+# This script defines an Heterogeneous Multitask Equivariant Network(HeMENet) deal with protein related tasks.
 from collections.abc import Sequence
 
 import torch

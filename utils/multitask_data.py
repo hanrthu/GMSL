@@ -7,7 +7,6 @@ from pathlib import Path
 import pickle
 import re
 from typing import Dict
-
 # from atom3d.datasets import deserialize
 from Bio.PDB import PDBParser
 from openbabel import pybel
@@ -17,7 +16,6 @@ from torch.types import Device
 from torch_geometric.data import Dataset
 from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map
-
 from utils import MyData, hetero_graph_transform, prot_graph_transform
 
 pybel.ob.obErrorLog.SetOutputLevel(0)
@@ -33,7 +31,7 @@ class CustomMultiTaskDataset(Dataset):
     The Custom MultiTask Dataset with uniform labels
     """
     def __init__(self, root_dir: str = './datasets/MultiTask', label_dir: str = './datasets/MultiTask/uniformed_labels.json',
-                remove_hoh = True, remove_hydrogen = True, cutoff = 6, split : str = 'train', task = 'multi', hetero = False, alpha_only=False):
+                graph_cache_dir= './datasets/MultiTask/processed_graphs/hetero_alpha_only_knn5_spatial4.5_sequential2', remove_hoh = True, remove_hydrogen = True, cutoff = 6, split : str = 'train', task = 'multi', hetero = False, alpha_only=False):
         super().__init__(root_dir)
         print("Initializing MultiTask Dataset...")
         self.root_dir = root_dir
@@ -65,6 +63,7 @@ class CustomMultiTaskDataset(Dataset):
             exit()
         self.split = split
         self.task = task
+        self.graph_cache_dir = graph_cache_dir + '_' + self.split
         self.process_complexes()
 
     def find_structure(self, item):
@@ -103,15 +102,116 @@ class CustomMultiTaskDataset(Dataset):
         df = pd.DataFrame({'element': unified_elements, 'resname':'LIG', 'x': xs, 'y': ys, 'z': zs})
         return df
 
-    def process_complexes(self):
+    def generate_cache_files(self):
+        p = PDBParser(QUIET=True)
         nmr_files = []
         wrong_number = []
         self.processed_complexes = []
         corrupted = []
+        for score_idx, item in enumerate(tqdm(self.files)):
+            structure_dir, ligand_dir = self.find_structure(item)
+            if ligand_dir != -1:
+                ligand = next(pybel.readfile('mol2', ligand_dir))
+                ligand_coords = [atom.coords for atom in ligand]
+                atom_map_lig = [atomic_num_dict(atom.atomicnum) for atom in ligand]
+                ligand_df = self.gen_df(ligand_coords, atom_map_lig)
+            else:
+                ligand_df = None
+            try:
+                structure = p.get_structure(item, structure_dir)
+            except:
+                corrupted.append(item)
+                continue
+            # structure = p.get_structure(item, structure_dir)
+            compound_info = structure.header['compound']
+            protein_numbers = len(compound_info.items())
+            
+            if len(structure) > 1:
+                nmr_files.append(item)
+                continue
+            if item not in self.labels:
+                wrong_number.append(item)
+                continue
+            model = structure[0]
+            chains = list(model.get_chains())
+            pattern = re.compile(r'\d+H.')
+            processed_complex = {'complex_id': item, 'num_proteins': protein_numbers, 'labels': self.labels[item],
+                                'atoms_protein': [], 'protein_seq': [], 'atoms_ligand':ligand_df}
+            elements = []
+            xs = []
+            ys = []
+            zs = []
+            chain_ids = []
+            protein_seq = []
+            names = []
+            resnames = []
+            residues = []
+            # chain = chains[0]
+            curr_residue = 0
+            for chain in chains:
+                if chain.id == ' ':
+                    continue
+                for residue in chain.get_residues():
+                    # 删除HOH原子
+                    if self.remove_hoh and residue.get_resname() == 'HOH':
+                        continue
+                    for atom in residue:
+                        # 删除氢原子
+                        atom_id = atom.get_id()                  
+                        if self.remove_hydrogen and residue.get_resname() in amino_acids_dict and (atom.get_id().startswith('H') or pattern.match(atom.get_id()) != None):
+                            continue
+                        if residue.get_resname() in amino_acids_dict and (atom_id.startswith('H') or pattern.match(atom.get_id()) != None):
+                            element = 'H'
+                        elif atom_id[0:2] in ['CL', 'Cl', 'Br', 'BR', 'AT', 'At']:
+                            element = 'Halogen'
+                        elif atom_id[0:2] in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI', 'Ca', 'HG', 'NA']:
+                            element = 'Metal'
+                        elif atom_id[0] in ['F', 'I']:
+                            element = 'Halogen'
+                        elif atom_id[0] in ['C','N','O','S','P']:
+                            element = atom_id[0]
+                        else:
+                            element = atom_id
+                        names.append(atom_id)
+                        residues.append(curr_residue)
+                        elements.append(element)
+                        chain_ids.append(chain.id)
+                        resnames.append(residue.get_resname())
+                        x, y, z = atom.get_vector()
+                        xs.append(x)
+                        ys.append(y)
+                        zs.append(z)
+                    protein_seq.append(residue.get_resname())
+                    curr_residue += 1
+            protein_df = pd.DataFrame({'chain': chain_ids, 'residue': residues, 'resname': resnames, 'element': elements, 'name': names, 'x': xs, 'y': ys, 'z': zs})
+            processed_complex['atoms_protein'] = protein_df
+            processed_complex['protein_seq'] = protein_seq
+            
+            self.processed_complexes.append(processed_complex)
+
+        print("Structure processed Done, dumping...")
+        print("Structures with Wrong numbers:", len(wrong_number), wrong_number)
+        print("Structures with NMR methods:", len(nmr_files), nmr_files)
+        print("Corrupted:", len(corrupted), corrupted)
+        # np.s
+        pickle.dump(self.processed_complexes, open(self.cache_dir, 'wb'))
+
+    def process_complexes(self):
         # cache_dir = os.path.join(self.root_dir, self.cache_dir)
-        if os.path.exists(self.cache_dir):
-            print("Start loading cached Multitask files...")
-            self.processed_complexes = pickle.load(open(self.cache_dir, 'rb'))
+        if os.path.exists(self.graph_cache_dir):
+            print("Graph Cache Found!...")
+            with open(self.graph_cache_dir, 'rb') as f:
+                self.processed_complexes = torch.load(f)
+            # self.processed_complexes = 
+            print("Dataset Size :", len(self.processed_complexes))
+        else:
+            if os.path.exists(self.cache_dir):
+                print("Start loading cached Multitask files...")
+                self.processed_complexes = pickle.load(open(self.cache_dir, 'rb'))
+            else:
+                print("Cache not found! Start processing Multitask files...Total Number {}".format(len(self.files)))
+                # count = 0
+                self.generate_cache_files()
             print("Complexes Before Checking:", self.len())
             self.check_dataset()
             print("Complexes Before Task Selection:", self.len())
@@ -121,108 +221,11 @@ class CustomMultiTaskDataset(Dataset):
                 print("Only retaining Alpha Carbon atoms for the atom_df")
                 self.retain_alpha_carbon()
             self.transform_cmplx()
-        else:
-            p = PDBParser(QUIET=True)
-            print("Cache not found! Start processing Multitask files...Total Number {}".format(len(self.files)))
-            # count = 0
-            for score_idx, item in enumerate(tqdm(self.files)):
-                structure_dir, ligand_dir = self.find_structure(item)
-                if ligand_dir != -1:
-                    ligand = next(pybel.readfile('mol2', ligand_dir))
-                    ligand_coords = [atom.coords for atom in ligand]
-                    atom_map_lig = [atomic_num_dict(atom.atomicnum) for atom in ligand]
-                    ligand_df = self.gen_df(ligand_coords, atom_map_lig)
-                else:
-                    ligand_df = None
-                try:
-                    structure = p.get_structure(item, structure_dir)
-                except:
-                    corrupted.append(item)
-                    continue
-                # structure = p.get_structure(item, structure_dir)
-                compound_info = structure.header['compound']
-                protein_numbers = len(compound_info.items())
-                
-                if len(structure) > 1:
-                    nmr_files.append(item)
-                    continue
-                if item not in self.labels:
-                    wrong_number.append(item)
-                    continue
-                model = structure[0]
-                chains = list(model.get_chains())
-                pattern = re.compile(r'\d+H.')
-                processed_complex = {'complex_id': item, 'num_proteins': protein_numbers, 'labels': self.labels[item],
-                                    'atoms_protein': [], 'protein_seq': [], 'atoms_ligand':ligand_df}
-                elements = []
-                xs = []
-                ys = []
-                zs = []
-                chain_ids = []
-                protein_seq = []
-                names = []
-                resnames = []
-                residues = []
-                # chain = chains[0]
-                curr_residue = 0
-                for chain in chains:
-                    if chain.id == ' ':
-                        continue
-                    for residue in chain.get_residues():
-                        # 删除HOH原子
-                        if self.remove_hoh and residue.get_resname() == 'HOH':
-                            continue
-                        for atom in residue:
-                            # 删除氢原子
-                            atom_id = atom.get_id()
-                            
-                            if self.remove_hydrogen and residue.get_resname() in amino_acids_dict and (atom.get_id().startswith('H') or pattern.match(atom.get_id()) != None):
-                                continue
-                            if residue.get_resname() in amino_acids_dict and (atom_id.startswith('H') or pattern.match(atom.get_id()) != None):
-                                element = 'H'
-                            elif atom_id[0:2] in ['CL', 'Cl', 'Br', 'BR', 'AT', 'At']:
-                                element = 'Halogen'
-                            elif atom_id[0:2] in ['FE', 'ZN', 'MG', 'MN', 'K', 'LI', 'Ca', 'HG', 'NA']:
-                                element = 'Metal'
-                            elif atom_id[0] in ['F', 'I']:
-                                element = 'Halogen'
-                            elif atom_id[0] in ['C','N','O','S','P']:
-                                element = atom_id[0]
-                            else:
-                                element = atom_id
-                            names.append(atom_id)
-                            residues.append(curr_residue)
-                            elements.append(element)
-                            chain_ids.append(chain.id)
-                            resnames.append(residue.get_resname())
-                            x, y, z = atom.get_vector()
-                            xs.append(x)
-                            ys.append(y)
-                            zs.append(z)
-                        protein_seq.append(residue.get_resname())
-                        curr_residue += 1
-                protein_df = pd.DataFrame({'chain': chain_ids, 'residue': residues, 'resname': resnames, 'element': elements, 'name': names, 'x': xs, 'y': ys, 'z': zs})
-                processed_complex['atoms_protein'] = protein_df
-                processed_complex['protein_seq'] = protein_seq
-                
-                self.processed_complexes.append(processed_complex)
-
-            print("Structure processed Done, dumping...")
-            print("Structures with Wrong numbers:", len(wrong_number), wrong_number)
-            print("Structures with NMR methods:", len(nmr_files), nmr_files)
-            print("Corrupted:", len(corrupted), corrupted)
-            # np.s
-            pickle.dump(self.processed_complexes, open(self.cache_dir, 'wb'))
-            print("Complexes Before Checking:", self.len())
-            self.check_dataset()
-            print("Complexes Before Task Selection:", self.len())
-            self.choose_task_items()
-            print("Dataset size:", self.len())
-            if self.alpha_only:
-                print("Only retaining Alpha Carbon atoms for the atom_df")
-                self.retain_alpha_carbon()
-            # self.transform_cmplx()
-
+            print("Loading Graph Cache...")
+            # with open(self.graph_cache_dir, 'rb') as f:
+            #     self.processed_complexes = torch.load(f)
+            # print("Dataset Size :", len(self.processed_complexes))
+            # self.processed_complexes = []
     def correctness_check(self, chain_uniprot_info, complx):
         #Annotation Correctness Check
         correct = True
@@ -281,7 +284,7 @@ class CustomMultiTaskDataset(Dataset):
         with open(info_root, 'r') as f:
             chain_uniprot_info = json.load(f)
 
-        if self.split == 'train_all':
+        if self.split in ['train_all', 'train']:
             thres = 3000 # This can cut long tail samples to avoid GPU memory expoition.
         else:
             thres = self.cal_length_thres(self.processed_complexes)
@@ -371,10 +374,32 @@ class CustomMultiTaskDataset(Dataset):
     def get(self, idx):
         # start = datetime.now()
         item = self.transform_func(self.processed_complexes[idx])
-        # item = self.processed_complexes[idx]
+        return item
+        # data = self.processed_complexes[idx]
+        # return MyData(
+        #     edge_relations=data.edge_relations,
+        #     valid_masks=data.valid_masks,
+        #     num_nodes=data.num_nodes,
+        #     num_relation=data.num_relation,
+        #     edge_index=data.edge_index,
+        #     chains=data.chains,
+        #     edge_weights=data.edge_weights, 
+        #     pos=data.pos, 
+        #     prot_id=data.prot_id, 
+        #     affinity_mask=data.affinity_mask,
+        #     lig_flag=data.lig_flag,
+        #     chain=data.chain,
+        #     affinities=data.affinities, 
+        #     type=data.type,
+        #     x=data.x, 
+        #     num_residues=data.num_residues, 
+        #     channel_weights=data.channel_weights, 
+        #     functions=data.functions,
+        #     residue_elements = data.residue_elements if not self.alpha_only else None
+        # )
         # end = datetime.now()
         # print("Time Cost for index:", idx, " is ", end - start)
-        return item
+        # return item
 
 class GNNTransformGO(object):
     def __init__(
@@ -588,13 +613,13 @@ class GNNTransformAffinity(object):
         if lba != -1:
             affinity = lba
             graph.affinity_mask = torch.ones(1)
-            graph.y = torch.FloatTensor([affinity])
+            graph.y = torch.tensor([affinity])
         elif ppi != -1:
             affinity = ppi
             graph.affinity_mask = torch.ones(1)
-            graph.y = torch.FloatTensor([affinity])
+            graph.y = torch.tensor([affinity])
         else:
-            graph.y = torch.FloatTensor([0])
+            graph.y = torch.tensor([0])
             graph.affinity_mask = torch.zeros(1)
         graph.chains = lig_flag[lig_flag!=0]
 
@@ -764,8 +789,8 @@ class GNNTransformMultiTask(object):
             if '-' in item['complex_id']:
                 pf_ids.append(0)
                 break
-            if id in chain_uniprot_info[item['complex_id']]:
-                uniprot_id = chain_uniprot_info[item['complex_id']][id]
+            if id in self.chain_uniprot_info[item['complex_id']]:
+                uniprot_id = self.chain_uniprot_info[item['complex_id']][id]
                 uniprot_ids.append(uniprot_id)
                 labels_uniprot = labels['uniprots']
                 if uniprot_id in labels_uniprot:
@@ -805,7 +830,7 @@ class GNNTransformMultiTask(object):
         ppi = labels['ppi']
         ec = labels['ec']
         go = labels['go']
-        graph.affinities = torch.FloatTensor([lba, ppi]).unsqueeze(0)
+        graph.affinities = torch.tensor([lba, ppi], dtype=torch.get_default_dtype()).unsqueeze(0)
         if lba != -1:
             graph.affinity_mask = torch.tensor([1, 0]).unsqueeze(0)
         elif ppi != -1:
@@ -847,7 +872,7 @@ class GNNTransformMultiTask(object):
                     valid_mask[3] = 0
                 annotations = annotations + mf_annot + bp_annot + cc_annot
                 
-            prop = torch.zeros(total_classes).scatter_(0,torch.tensor(annotations),1)
+            prop = torch.zeros(total_classes, dtype=torch.get_default_dtype()).scatter_(0,torch.tensor(annotations),1)
             graph.functions.append(prop)
             graph.valid_masks.append(valid_mask)
         try:

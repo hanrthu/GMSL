@@ -87,6 +87,7 @@ class TaskAwareReadout(nn.Module):
             padded_tensors.append(unique_tensor)
         batched_input = torch.stack(padded_tensors, dim=0)
         return batched_input
+    
     def forward(self, task_prompt, input, index):
         # This is the task aware attention readout
         # Following the original Transformer structure, modified the attention mask

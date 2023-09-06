@@ -4,6 +4,7 @@ from torch.types import Device
 
 from .edge_construction import KNNEdge, SequentialEdge, SpatialEdge
 from .utils import MyData
+from datetime import datetime
 
 NUM_ATOM_TYPES = 10
 MAX_CHANNEL = 14 # 4 backbone + sidechain
@@ -135,9 +136,9 @@ def hetero_graph_transform(
     # Three types of edges
     # 为什么 min_distance 是 4.5，不是一个整数？
     knn = KNNEdge(k=5, min_distance=4.5, max_channel=max_channel)
-    # spatial = SpatialEdge(radius=cutoff, min_distance=4.5, max_channel=max_channel)
+    spatial = SpatialEdge(radius=cutoff, min_distance=4.5, max_channel=max_channel)
     sequential = SequentialEdge(max_distance=2)
-    edge_layers = [knn, sequential]
+    edge_layers = [knn, spatial, sequential]
 
     if len(node_feats) != len(pos):
         print(item_name)

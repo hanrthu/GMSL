@@ -1,4 +1,4 @@
-# This script defines an Heterougeneous Multitask Equivariant Network(HeMENet) deal with protein related tasks.
+# This script defines an Heterogeneous Multitask Equivariant Network(HeMENet) deal with protein related tasks.
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -261,9 +261,9 @@ class AM_EGCL(nn.Module):
         radial, coord_diff = self.generate_radial_feature(coords, edge_list, channel_attr, channel_weights)
         # Calculate scalar message mij
         source, target = edge_list[:, 0], edge_list[:, 1] # j, i
-        max_target = torch.max(target)
-        max_source = torch.max(source)
-        max_nodes = h.shape[0]
+        # max_target = torch.max(target)
+        # max_source = torch.max(source)
+        # max_nodes = h.shape[0]
         node_s = h[source] 
         node_t = h[target]
         if edge_attr:

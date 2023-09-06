@@ -11,12 +11,14 @@ learning_rate: 1.0e-4
 batch_accum_grad: 1
 weight_decay: 0
 max_epochs: 50
+graph_cache_dir: ./datasets/MultiTask/processed_graphs/hetero_fullatom_knn5_spatial4.5_sequential2
 enhanced: False
 readout: task_aware_attention
 # [weighted_feature, task_aware_attention]
 # 这些都是EQGAT需要的参数，之后优化掉
 cross_ablate: False
 no_feat_attn: False
+precision: 16
 
 #Dataset Settings
 drop_last: False
@@ -27,12 +29,12 @@ val_split: val
 test_split: test
 alpha_only: False
 offset_strategy: 1
-num_workers: 4
+num_workers: 0
 
 # Trainer Settings
 device: 
-  - 2
-  # - 1
+  # - 2
+  - 1
 nruns: 3
 wandb: True
 save_dir: hemenet

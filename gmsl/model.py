@@ -235,7 +235,6 @@ class BaseModel(nn.Module):
                 DenseLayer(sdim, sdim, activation=nn.SiLU(), bias=True),
                 nn.Dropout(dropout),
                 DenseLayer(sdim, class_num, bias=True),
-                nn.Sigmoid()
             ) for class_num in class_nums]
             self.property_heads = nn.ModuleList()
             for head in heads:
