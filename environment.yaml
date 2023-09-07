@@ -12,11 +12,12 @@ dependencies:
 - llvm-openmp<16  # https://github.com/pytorch/pytorch/issues/99625
 - einops=0.6.1
 - pytorch-lightning=2.0.8
-- pyg::pyg
+- pyg::pyg=2.3.1
 - wandb=0.15.9
 - pandas=2.1.0
 - openbabel=3.1.1
 - httpx=0.24.1
+- cytoolz=0.12.2
 #  - ipykernel=6.25.0
 - pip=23.2.1
 - pip:
