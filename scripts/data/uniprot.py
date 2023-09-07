@@ -1,29 +1,23 @@
-import json
-from pathlib import Path
 import textwrap
 
 import cytoolz
 import httpx
+import pandas as pd
 from tqdm.contrib.concurrent import process_map
 
-from gmsl.datamodule import get_pdb_ids
+from gmsl.datamodule import get_pdb_ids, uniprot_table_path
 
-def parse_entry(entry: dict):
-    table = {}
+def parse_entry(entry: dict) -> list[tuple[str, str, str]]:
+    pdb_id = entry['rcsb_id']
     entities = entry['polymer_entities']
-    entity_dict = {}
+    ret = []
     for entity in entities:
         entity: dict = entity['rcsb_polymer_entity_container_identifiers']
-        entity_id = entity.pop('entity_id')
-        assert entity_id not in entity_dict
-        uniprot_ids: list[str] | None = entity.pop('uniprot_ids')
-        if uniprot_ids is None or len(uniprot_ids) != 1:
-            uniprot_id = None
-        else:
+        uniprot_ids = entity.pop('uniprot_ids')
+        if uniprot_ids is not None and len(uniprot_ids) == 1:
             uniprot_id = uniprot_ids[0]
-        for chain_id in entity['auth_asym_ids']:
-            table[chain_id] = uniprot_id
-    return entry['rcsb_id'], table
+            ret.extend([(pdb_id, chain_id, uniprot_id) for chain_id in entity['auth_asym_ids']])
+    return ret
 
 def get_entries(entry_ids: list[str]):
     r =  httpx.post(
@@ -49,13 +43,14 @@ def get_entries(entry_ids: list[str]):
         timeout=None,
     )
     entries: list[dict] = r.json()['data']['entries']
-    return list(map(parse_entry, entries))
+    return list(cytoolz.concat(map(parse_entry, entries)))
 
 def main():
     entry_ids = get_pdb_ids()
     print(len(entry_ids))
     result = process_map(get_entries, list(cytoolz.partition_all(300, entry_ids)), ncols=80, max_workers=32)
-    Path('uniprot.json').write_text(json.dumps(dict(cytoolz.concat(result)), indent=4, ensure_ascii=False))
+    table = pd.DataFrame(list(cytoolz.concat(result)), columns=['pdb_id', 'chain', 'uniprot'])
+    table.to_csv(uniprot_table_path, index=False)
 
 if __name__ == '__main__':
     main()
