@@ -199,9 +199,9 @@ class LBADataLightning(pl.LightningDataModule):
         elif self.train_task == 'reaction' or self.train_task == 'multi':
             print("reaction task")
             r_d = './datasets/MultiTaskNew'
-        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
-        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
-        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
+        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
+        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
+        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
 
     def train_dataloader(self, shuffle: bool = False):
         # if self.auxiliary != None:
@@ -399,6 +399,7 @@ if __name__ == "__main__":
             # auxiliary=None
         )
         model = model_cls(
+            args=args,
             sdim=args.sdim,
             vdim=args.vdim,
             depth=args.depth,

@@ -95,12 +95,14 @@ def hetero_graph_transform(
     feat_col: str = "resname",
     init_dtype: torch.dtype = torch.float64,
     super_node: bool = False,
-    alpha_only = False
+    alpha_only = False,
+    flag: torch.Tensor = None,
     ):
     """
     A function that can generate graph with different kinds of edges
     """
     # TODO: 重构此段代码，需要适配alpha only和全原子的两种情况（目前全原子的情况仅对坐标做multichannel的适配, 氨基酸仍然用一个feature来表示）
+    # print("alpha only", alpha_only)
     protein_df = atom_df[atom_df.resname != "LIG"].reset_index(drop=True)
     ligand_df = atom_df[atom_df.resname == "LIG"].reset_index(drop=True)
     if not alpha_only:

@@ -9,6 +9,7 @@ from typing import Tuple
 class MultiTaskModel(pl.LightningModule):
     def __init__(
         self,
+        args,
         sdim: int = 128,
         vdim: int = 16,
         depth: int = 5,
@@ -469,6 +470,7 @@ class MultiTaskModel(pl.LightningModule):
 class AffinityModel(pl.LightningModule):
     def __init__(
         self,
+        args,
         sdim: int = 128,
         vdim: int = 16,
         depth: int = 5,
@@ -683,6 +685,7 @@ class AffinityModel(pl.LightningModule):
 class PropertyModel(pl.LightningModule):
     def __init__(
         self,
+        args,
         sdim: int = 128,
         vdim: int = 16,
         depth: int = 5,
