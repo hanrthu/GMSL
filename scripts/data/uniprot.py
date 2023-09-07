@@ -1,4 +1,3 @@
-import itertools as it
 import json
 from pathlib import Path
 import textwrap
@@ -7,24 +6,7 @@ import cytoolz
 import httpx
 from tqdm.contrib.concurrent import process_map
 
-def get_entry_ids() -> list[str]:
-    ids = [
-        entry_dir.name.split('.', 1)[0]
-        for subdir in ['PP', 'refined-set']
-        for entry_dir in (Path('datasets/PDBbind') / subdir).iterdir()
-        if entry_dir.name not in ['index', 'readme']
-    ] + [
-        chain.split('-', 1)[0]
-        for (task, abbr), split in it.product(
-            [
-                ('EnzymeCommission', 'EC'),
-                ('GeneOntology', 'GO'),
-            ],
-            ['train', 'valid', 'test'],
-        )
-        for chain in (Path('datasets') / task / f'nrPDB-{abbr}_{split}.txt').read_text().splitlines()
-    ]
-    return sorted(set(map(str.upper, ids)))
+from gmsl.datamodule import get_pdb_ids
 
 def parse_entry(entry: dict):
     table = {}
@@ -70,7 +52,7 @@ def get_entries(entry_ids: list[str]):
     return list(map(parse_entry, entries))
 
 def main():
-    entry_ids = get_entry_ids()
+    entry_ids = get_pdb_ids()
     print(len(entry_ids))
     result = process_map(get_entries, list(cytoolz.partition_all(300, entry_ids)), ncols=80, max_workers=32)
     Path('uniprot.json').write_text(json.dumps(dict(cytoolz.concat(result)), indent=4, ensure_ascii=False))
