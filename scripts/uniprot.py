@@ -1,5 +1,3 @@
-from collections.abc import Callable
-import enum
 import itertools as it
 import json
 from pathlib import Path
