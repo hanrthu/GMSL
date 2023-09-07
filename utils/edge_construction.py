@@ -34,7 +34,7 @@ def block_knn_graph(pos: torch.Tensor, channel_weights: torch.Tensor, k: int, ep
         return edge_list # [|Ek|, 2]
 
 @torch.no_grad()
-def block_radius_graph(pos: torch.Tensor, channel_weights: torch.Tensor, r, max_num_neighbors, eps=1e-10, max_channel=1):
+def block_radius_graph(pos: torch.Tensor, channel_weights: torch.Tensor, r: float, max_num_neighbors: int, eps: float = 1e-10, max_channel=1):
     device = pos.device
     if max_channel == 1:
         pos = pos.squeeze()
@@ -128,7 +128,7 @@ class SpatialEdge(object):
 
     eps = 1e-10
 
-    def __init__(self, radius=5, min_distance=5, max_num_neighbors=32, max_channel=1):
+    def __init__(self, radius: float = 5, min_distance: int = 5, max_num_neighbors: int = 32, max_channel: int = 1):
         super(SpatialEdge, self).__init__()
         self.radius = radius
         self.min_distance = min_distance
