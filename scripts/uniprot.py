@@ -28,36 +28,24 @@ def get_entry_ids() -> list[str]:
     ]
     return sorted(set(map(str.upper, ids)))
 
-class UniProtFlag(enum.IntFlag):
-    NONE = enum.auto()
-    MULTI = enum.auto()
-
-    @classmethod
-    def whole(cls):
-        return (1 << len(cls)) - 1
-
 def parse_entry(entry: dict):
-    entry_id: str = entry['rcsb_id']
+    table = {}
     entities = entry['polymer_entities']
     entity_dict = {}
-    flag = 0
     for entity in entities:
         entity: dict = entity['rcsb_polymer_entity_container_identifiers']
         entity_id = entity.pop('entity_id')
         assert entity_id not in entity_dict
         uniprot_ids: list[str] | None = entity.pop('uniprot_ids')
-        if uniprot_ids is None:
-            entity['uniprot_id'] = None
-            flag |= UniProtFlag.NONE
-        elif len(uniprot_ids) == 1:
-            entity['uniprot_id'] = uniprot_ids[0]
+        if uniprot_ids is None or len(uniprot_ids) != 1:
+            uniprot_id = None
         else:
-            entity['uniprot_id'] = uniprot_ids
-            flag |= UniProtFlag.MULTI
-        entity_dict[entity_id] = entity
-    return flag, (entry_id, entity_dict)
+            uniprot_id = uniprot_ids[0]
+        for chain_id in entity['auth_asym_ids']:
+            table[chain_id] = uniprot_id
+    return entry['rcsb_id'], table
 
-def request(entry_ids: list[str]):
+def get_entries(entry_ids: list[str]):
     r =  httpx.post(
         'https://data.rcsb.org/graphql',
         json={
@@ -86,16 +74,8 @@ def request(entry_ids: list[str]):
 def main():
     entry_ids = get_entry_ids()
     print(len(entry_ids))
-    result = process_map(request, list(cytoolz.partition_all(300, entry_ids)), ncols=80, max_workers=32)
-    result = list(cytoolz.concat(result))
-    def dump(flag_filter_fn: Callable[[int],bool], filename: str):
-        data = dict(entry for flag, entry in result if flag_filter_fn(flag))
-        print(filename, len(data))
-        Path(filename).write_text(json.dumps(data, indent=4, ensure_ascii=False))
-
-    dump(lambda flag: flag == 0, 'uniprot.json')
-    dump(lambda flag: flag & UniProtFlag.NONE, 'uniprot-none.json')
-    dump(lambda flag: flag & UniProtFlag.MULTI, 'uniprot-multi.json')
+    result = process_map(get_entries, list(cytoolz.partition_all(300, entry_ids)), ncols=80, max_workers=32)
+    Path('uniprot.json').write_text(json.dumps(dict(cytoolz.concat(result)), indent=4, ensure_ascii=False))
 
 if __name__ == '__main__':
     main()
