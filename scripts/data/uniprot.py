@@ -46,9 +46,10 @@ def get_entries(entry_ids: list[str]):
     return list(cytoolz.concat(map(parse_entry, entries)))
 
 def main():
+    chunksize = 300
     entry_ids = get_pdb_ids()
     print(len(entry_ids))
-    result = process_map(get_entries, list(cytoolz.partition_all(300, entry_ids)), ncols=80, max_workers=32)
+    result = process_map(get_entries, list(cytoolz.partition_all(chunksize, entry_ids)), ncols=80, max_workers=32)
     table = pd.DataFrame(list(cytoolz.concat(result)), columns=['pdb_id', 'chain', 'uniprot'])
     table.to_csv(uniprot_table_path, index=False)
 
