@@ -7,28 +7,31 @@ from torch_geometric.typing import OptTensor
 from gmsl.modules import BatchNorm, LayerNorm
 from gmsl.convs import SchNetConv
 
-
+from gmsl.register import Register
+register = Register()
+@register('schnet')
 class SchNetGNN(nn.Module):
     def __init__(
             self,
-            dims: int,
+            sdim: int,
             depth: int = 5,
             aggr: str = "mean",
             cutoff: Optional[float] = 5.0,
             num_radial: Optional[int] = 32,
-            use_norm: bool = False,
+            layer_norm: bool = False,
+            **kwargs
     ):
         super(SchNetGNN, self).__init__()
-        self.dims = dims
+        self.dims = sdim
         self.depth = depth
-        self.use_norm = use_norm
+        self.use_norm = layer_norm
         self.convs = nn.ModuleList()
         self.norms = nn.ModuleList()
         for i in range(depth):
             self.convs.append(
                 SchNetConv(
-                    in_dims=dims,
-                    out_dims=dims,
+                    in_dims=sdim,
+                    out_dims=sdim,
                     aggr=aggr,
                     cutoff=cutoff,
                     num_radial=num_radial,
@@ -36,7 +39,7 @@ class SchNetGNN(nn.Module):
             )
             if use_norm:
                 self.norms.append(
-                    LayerNorm(dims=(dims, None), affine=True)
+                    LayerNorm(dims=(sdim, None), affine=True)
                 )
 
         self.apply(fn=reset)

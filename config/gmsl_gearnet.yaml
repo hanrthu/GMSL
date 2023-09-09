@@ -1,26 +1,33 @@
 # This is the config file for GearNet without Edge layers and Checkpoints.
 
 # Lightning Model Settings
-batch_size: 32
-sdim: 128
-vdim: 16
-depth: 3
-model_type: gearnet
-num_radial: 32
-learning_rate: 1.0e-4
-batch_accum_grad: 1
-weight_decay: 0
-max_epochs: 50
-graph_cache_dir: ./datasets/MultiTask/processed_graphs/hetero_alpha_only_knn5_spatial4.5_sequential2ee
-enhanced: False
-readout: task_aware_attention
-# [weighted_feature, task_aware_attention]
-# 这些都是EQGAT需要的参数，之后优化掉
-cross_ablate: False
-no_feat_attn: False
-precision: 16
+model_args:
+  sdim: 128
+  vdim: 16
+  depth: 3
+  aggr: 'mean'
+  model_type: gearnet
+  num_radial: 32
+  learning_rate: 1.0e-4
+  weight_decay: 0
+  readout: task_aware_attention
+  # [weighted_feature, task_aware_attention]
+  r_cutoff: 4.5
+  factor_scheduler: 0.75
+  layer_norm: True
+  batch_norm: True
+  hidden_dims:
+    - 512
+    - 512
+    - 512
+    - 512
+    - 512
+    - 512
+  embedding_dim: 512
+  num_relation: 7
 
 #Dataset Settings
+batch_size: 32
 drop_last: False
 run_name: gearnet
 train_task: multi
@@ -30,9 +37,10 @@ test_split: test
 alpha_only: True
 offset_strategy: 1
 num_workers: 0
+graph_cache_dir: ./datasets/MultiTask/processed_graphs/hetero_alpha_only_knn5_spatial4.5_sequential2
 
 # Trainer Settings
-device: 
+device:
   - 3
   # - 3
 nruns: 3
@@ -41,3 +49,5 @@ save_dir: gearnet
 gradient_clip_val: 10
 load_ckpt: null
 seed: 817
+batch_accum_grad: 1
+max_epochs: 20

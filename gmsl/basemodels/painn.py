@@ -6,30 +6,33 @@ from torch_geometric.typing import OptTensor
 
 from gmsl.modules import BatchNorm, LayerNorm
 from gmsl.convs import PaiNNConv
-
-
+from gmsl.register import Register
+register = Register()
+@register('painn')
 class PaiNNGNN(nn.Module):
     def __init__(
             self,
-            dims: Tuple[int, int] = (128, 32),
+            sdim: int = 128,
+            vdim: int = 32,
             depth: int = 5,
             aggr: str = "mean",
             eps: float = 1e-6,
             cutoff: Optional[float] = 5.0,
             num_radial: Optional[int] = 32,
-            use_norm: bool = False,
+            layer_norm: bool = False,
+            **kwargs
     ):
         super(PaiNNGNN, self).__init__()
-        self.dims = dims
+        self.dims = (sdim, vdim)
         self.depth = depth
-        self.use_norm = use_norm
+        self.use_norm = layer_norm
         self.convs = nn.ModuleList()
         self.norms = nn.ModuleList()
         for i in range(depth):
             self.convs.append(
                 PaiNNConv(
-                    in_dims=dims,
-                    out_dims=dims,
+                    in_dims=self.dims,
+                    out_dims=self.dims,
                     has_v_in=i>0,
                     aggr=aggr,
                     cutoff=cutoff,
@@ -38,9 +41,9 @@ class PaiNNGNN(nn.Module):
 
                 )
             )
-            if use_norm:
+            if layer_norm:
                 self.norms.append(
-                    LayerNorm(dims=dims, affine=True)
+                    LayerNorm(dims=self.dims, affine=True)
                 )
 
         self.apply(fn=reset)

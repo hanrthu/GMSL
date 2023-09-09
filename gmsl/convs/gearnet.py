@@ -175,12 +175,12 @@ class GeometricRelationalGraphConv(nn.Module):
         return message
     
     def aggregate(self, graph, message):
-        #什么是edge_weight? 
+        # 什么是edge_weight?
         # print("Graph Num Relation:", graph.num_relation)
         assert graph.num_relation[0] == self.num_relation
-        #乘起来是为了把num_relation种边给分开，然后就可以异质图分别求sumup了
+        # 乘起来是为了把num_relation种边给分开，然后就可以异质图分别求sumup了
         node_out = graph.edge_list[:, 1] * self.num_relation + graph.edge_list[:, 2]
-        #在这里应该edgeweight全是1
+        # 在这里应该edgeweight全是1
         # print("Graph Edge Weights:", graph.edge_weights.shape)
         edge_weight = graph.edge_weights.unsqueeze(-1)
         # print("Num Node:", graph.num_nodes, len(graph.x))

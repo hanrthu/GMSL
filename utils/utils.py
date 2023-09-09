@@ -70,6 +70,20 @@ bond_dict = lambda x: {
     # 'ss': 16
 }.get(x, 14)
 
+affinity_num_dict = lambda x :{
+    'lba': [1],
+    'ppi': [1],
+    'multi': [1, 1]
+}.get(x, [])
+
+class_num_dict = lambda x : {
+    'ec': [538],
+    'mf': [490],
+    'bp': [1944],
+    'cc': [321],
+    'go': [490, 1944, 321],
+    'multi': [538, 490, 1944, 321]
+}.get(x, [])
 
 def singleton(cls):
     _instance = {}

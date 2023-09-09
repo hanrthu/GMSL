@@ -2,6 +2,8 @@ import torch
 import math
 from torch import Tensor, nn
 import pytorch_lightning as pl
+from torch.optim import Optimizer
+
 from gmsl.model import BaseModel, SEGNNModel
 from torch_geometric.data import Batch
 from typing import Tuple
@@ -23,10 +25,9 @@ class MultiTaskModel(pl.LightningModule):
         max_epochs: int = 30,
         use_norm: bool = True,
         aggr: str = "mean",
-        enhanced: bool = True,
-        offset_strategy: int = 0,
         task = 'multi',
-        readout = 'vallina'
+        readout = 'vallina',
+        **kwargs
     ):
         if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet"]:
             print("Wrong select model type")
@@ -53,7 +54,7 @@ class MultiTaskModel(pl.LightningModule):
         self.affinity_info = {'lba': 1, 'ppi': 1}
         # Weight of loss for each task
         # 之后可以变成可学习的版本
-        self.property_alphas = [1, 1, 1, 1]
+        self.property_alphas = [1.5, 1, 1, 1]
         self.affinity_alphas = [1, 1]
         self.l1 = nn.L1Loss()
         self.l2 = nn.MSELoss()
@@ -64,15 +65,6 @@ class MultiTaskModel(pl.LightningModule):
         self.training_step_outputs =[]
         self.validation_step_outputs =[]
         self.test_step_outputs = []
-        if offset_strategy == 0:
-            num_elements = 10
-        elif offset_strategy == 1:
-            num_elements = 10 + 9
-        elif offset_strategy == 2:
-            num_elements = 10 + 9 * 20
-        else:
-            raise NotImplementedError
-        # print("Num Elements:", num_elements)
         if model_type != "segnn":
             # print("Args:", args)
             self.model = BaseModel(sdim=sdim,
@@ -81,26 +73,23 @@ class MultiTaskModel(pl.LightningModule):
                                    r_cutoff=r_cutoff,
                                    num_radial=num_radial,
                                    model_type=model_type,
-                                   graph_level=True,
-                                   num_elements=num_elements,
                                    out_units=1,
                                    dropout=0.0,
-                                   use_norm=use_norm,
                                    aggr=aggr,
-                                   cross_ablate=False,
                                    no_feat_attn=False,
                                    task = task,
-                                   readout=readout
+                                   readout=readout,
+                                   **kwargs
                                 # protein_function_class_dims = class_dims
                                    )
         else:
-            self.model = SEGNNModel(num_elements=num_elements,
+            self.model = SEGNNModel(
                                     out_units=1,
                                     hidden_dim=sdim + 3 * vdim + 5 * vdim // 2,
                                     lmax=2,
                                     depth=depth,
                                     graph_level=True,
-                                    use_norm=False)
+                                    layer_norm=False)
 
 
     def configure_optimizers(self):
@@ -147,18 +136,6 @@ class MultiTaskModel(pl.LightningModule):
             # class labels = 538+490+1944+321
             if pred_new.shape[0] == 0:
                 continue
-            # print("precision:", (torch.sum((pred_new == true_new), dim=1) / torch.sum(pred_new, dim=1)).shape)
-            # curr_position = 0
-            # fs_thres = []
-            # for task in self.class_nums:
-            #     precision = torch.mean(torch.sum(((pred_new[:, curr_position: curr_position + task] == true_new[:, curr_position: curr_position + task]) * (true_new[:, curr_position: curr_position + task] == 1)), dim=1) / torch.sum(pred_new[:, curr_position: curr_position + task], dim=1))
-            #     recall = torch.mean(torch.sum(((y_pred[:, curr_position: curr_position + task] == y_true[:, curr_position: curr_position + task]) * (y_true[:, curr_position: curr_position + task] == 1)), dim=1)/ torch.sum(y_true[:, curr_position: curr_position + task], dim=1))
-            #     f = (2 * precision * recall) / (precision + recall)
-            #     if not torch.isnan(f):
-            #         fs_thres.append(f.item())
-            #     else:
-            #         fs_thres.append(-1)
-            #     curr_position += task
             # # 计算总的fmax
             precision = torch.mean(torch.sum(((pred_new == true_new) * (true_new == 1)), dim=1) / torch.sum(pred_new, dim=1))
             recall = torch.mean(torch.sum(((y_pred == y_true) * (y_true == 1)), dim=1)/ torch.sum(y_true, dim=1))
@@ -174,22 +151,11 @@ class MultiTaskModel(pl.LightningModule):
         return f_max.item()
             
     def forward(self, data: Batch) -> Tuple[Tensor, Tensor]:
-        # if self.model_type == 'egnn_edge':
-        #     y_true = data.y.view(-1, )
-        #     y_aux_true = data.external_edge_dist.view(-1)
-        #     y_pred, y_aux_pred = self.model(data=data)
-        #     y_pred = y_pred.view(-1, )
-        #     y_aux_pred = y_aux_pred.view(-1, )
-        #     # print("Y_pred:", y_pred, y_true)
-        #     # print("Y_aux_pred:", y_aux_pred, y_aux_true)
-        #     return y_pred, y_true, y_aux_pred, y_aux_true
-        self.datatype = data.type
         y_affinity_pred, y_property_pred = self.model(data=data)[0], self.model(data=data)[1]
-        y_affinity_true = data.affinities
-        y_affinity_mask = data.affinity_mask
-        y_property_true = data.functions
-        y_property_mask = data.valid_masks
+        return y_affinity_pred, y_property_pred
 
+    def align_pred_and_gt(self, y_affinity_pred, y_property_pred, y_affinity_true, y_affinity_mask,
+        y_property_true, y_property_mask):
         # Predict Affinities
         y_affinity_preds = []
         y_affinity_trues = []
@@ -211,9 +177,13 @@ class MultiTaskModel(pl.LightningModule):
         y_property_preds = []
         y_property_trues = []
         for i, (property_name, class_num) in enumerate(self.property_info.items()):
+
             right = left + class_num
             curr_pred = y_property_pred[i]
-            curr_true = y_property_true[:, left: right] # to avoid that there are only on element in prediction
+            curr_true = y_property_true[:, left: right]  # to avoid that there are only on element in prediction
+            if torch.isnan(curr_pred).any():
+                x = torch.isnan(curr_pred)
+                print("Wrong Prediction of Properties!")
             if len(curr_pred.shape) == 1:
                 curr_pred = curr_pred.unsqueeze(0)
             if len(curr_true.shape) == 1:
@@ -226,38 +196,39 @@ class MultiTaskModel(pl.LightningModule):
             y_property_preds.append(curr_pred)
             y_property_trues.append(curr_true)
             left = right
-        
         return y_affinity_preds, y_property_preds, y_affinity_trues, y_property_trues
 
+    def on_before_optimizer_step(self, optimizer: Optimizer) -> None:
+        for name, param in self.named_parameters():
+            if param.grad is None:
+                print(name)
+                print("HAHAHA")
 
     def training_step(self, batch, batch_idx):
-        # if self.model_type == "egnn_edge":
-        #     y_pred, y_true, y_aux_pred, y_aux_true = self(batch)
-        #     loss1 = self.l2(y_pred, y_true)
-        #     loss2 = self.l2_aux(y_aux_pred, y_aux_true)
-        #     # alpha = 0.1
-        #     loss = loss1 + 0.2 * loss2
-        #     # print("Loss:", loss)
-        #     self.log("train_l2", loss, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
-        #     aux_l2_loss = self.l2(y_aux_pred, y_aux_true)
-        # self.log("aux_loss", aux_l2_loss, on_step=True, on_epoch=False, prog_bar=True)
-        y_affinity_preds, y_property_preds, y_affinity_trues, y_property_trues = self(batch)
+        a = self.trainer.global_rank
+        y_a_pred, y_p_pred = self(batch)
+        y_affinity_true = batch.affinities
+        y_affinity_mask = batch.affinity_mask
+        y_property_true = batch.functions
+        y_property_mask = batch.valid_masks
+        y_affinity_preds, y_property_preds, y_affinity_trues, y_property_trues = self.align_pred_and_gt(y_a_pred, y_p_pred, y_affinity_true,
+                                                                                                        y_affinity_mask, y_property_true, y_property_mask)
         bce_losses = 0
         l2_losses = 0
         # This output contains bce and l2 loss for each category as well as in total.
         training_step_output = {}
-        for i, (property_name, class_num) in enumerate(self.property_info.items()):  
-        # print("Shape:", y_property_pred.shape==y_property_true.shape)
-        # print("Label", torch.isnan(y_property_true).any(), torch.isnan(y_property_pred).any())
+        for i, (property_name, class_num) in enumerate(self.property_info.items()):
         # 这是因为这里会预测出一个nan，不知道为什么，之后看一看
             y_property_pred = y_property_preds[i]
             y_property_true = y_property_trues[i]
             if torch.isnan(y_property_pred).any():
                 print("Wrong Prediction of Properties!", batch.prot_id, batch)
-            if not torch.isnan(y_property_pred).any():
-                bce_loss = self.bce(y_property_pred, y_property_true)
-            else:
                 bce_loss = torch.tensor([torch.nan])
+            else:
+                if len(y_property_true) != 0:
+                    bce_loss = self.bce(y_property_pred, y_property_true)
+                else:
+                    bce_loss = (y_p_pred[i] * 0).mean()
             loss_name = 'bce_' + property_name
             training_step_output[loss_name] = bce_loss
             self.log(loss_name, bce_loss, on_step=True, on_epoch=False, prog_bar=False, sync_dist=True)
@@ -269,7 +240,7 @@ class MultiTaskModel(pl.LightningModule):
             if len(y_affinity_pred) != 0:
                 l2_loss= self.l2(y_affinity_pred, y_affinity_true)
             else:
-                l2_loss = torch.tensor([torch.nan])
+                l2_loss = (y_a_pred[i] * 0).mean()
             loss_name = 'l2_' + affinity_name
             training_step_output[loss_name] = l2_loss
             self.log(loss_name, l2_loss, on_step=True, on_epoch=False, prog_bar=False, sync_dist=True)
@@ -305,7 +276,13 @@ class MultiTaskModel(pl.LightningModule):
         # if self.model_type == "egnn_edge":
         #     y_pred, y_true, _, _ = self(batch)
         # else:
-        y_affinity_preds, y_property_preds, y_affinity_trues, y_property_trues = self(batch)
+        y_affinity_pred, y_property_pred = self(batch)
+        y_affinity_true = batch.affinities
+        y_affinity_mask = batch.affinity_mask
+        y_property_true = batch.functions
+        y_property_mask = batch.valid_masks
+        y_affinity_preds, y_property_preds, y_affinity_trues, y_property_trues = self.align_pred_and_gt(y_affinity_pred, y_property_pred, y_affinity_true,
+                                                                                                        y_affinity_mask, y_property_true, y_property_mask)
         for i, (affinity_name, affinity_num) in enumerate(self.affinity_info.items()):
             curr_pred = y_affinity_preds[i]
             curr_true = y_affinity_trues[i]
@@ -319,7 +296,13 @@ class MultiTaskModel(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         # if self.model_type == "egnn_edge":
         #     y_pred, y_true, _, _ = self(batch)
-        y_affinity_preds, y_property_preds, y_affinity_trues, y_property_trues = self(batch)
+        y_affinity_pred, y_property_pred = self(batch)
+        y_affinity_true = batch.affinities
+        y_affinity_mask = batch.affinity_mask
+        y_property_true = batch.functions
+        y_property_mask = batch.valid_masks
+        y_affinity_preds, y_property_preds, y_affinity_trues, y_property_trues = self.align_pred_and_gt(y_affinity_pred, y_property_pred, y_affinity_true,
+                                                                                                        y_affinity_mask, y_property_true, y_property_mask)
         self.test_step_outputs.append({"affinity_true": y_affinity_trues,"affinity_pred": y_affinity_preds,"property_true": y_property_trues,"property_pred": y_property_preds})
 
     def on_train_epoch_end(self):
@@ -431,9 +414,8 @@ class AffinityModel(pl.LightningModule):
         max_epochs: int = 30,
         use_norm: bool = True,
         aggr: str = "mean",
-        enhanced: bool = True,
-        offset_strategy: int = 0,
-        task = 'affinity'
+        task = 'affinity',
+        **kwargs
     ):
         if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet"]:
             print("Wrong select model type")
@@ -461,15 +443,6 @@ class AffinityModel(pl.LightningModule):
         self.training_step_outputs =[]
         self.validation_step_outputs =[]
         self.test_step_outputs = []
-        if offset_strategy == 0:
-            num_elements = 10
-        elif offset_strategy == 1:
-            num_elements = 10 + 9
-        elif offset_strategy == 2:
-            num_elements = 10 + 9 * 20
-        else:
-            raise NotImplementedError
-        # print("Num Elements:", num_elements)
         if model_type != "segnn":
             self.model = BaseModel(sdim=sdim,
                                    vdim=vdim,
@@ -478,18 +451,16 @@ class AffinityModel(pl.LightningModule):
                                    num_radial=num_radial,
                                    model_type=model_type,
                                    graph_level=True,
-                                   num_elements=num_elements,
                                    out_units=1,
                                    dropout=0.0,
                                    use_norm=use_norm,
                                    aggr=aggr,
-                                   cross_ablate=False,
                                    no_feat_attn=False,
                                    task=task
                                 #    protein_function_class_dims = class_dims
                                    )
         else:
-            self.model = SEGNNModel(num_elements=num_elements,
+            self.model = SEGNNModel(
                                     out_units=1,
                                     hidden_dim=sdim + 3 * vdim + 5 * vdim // 2,
                                     lmax=2,
@@ -685,18 +656,16 @@ class PropertyModel(pl.LightningModule):
                                    num_radial=num_radial,
                                    model_type=model_type,
                                    graph_level=True,
-                                   num_elements=num_elements,
                                    out_units=1,
                                    dropout=0.0,
                                    use_norm=use_norm,
                                    aggr=aggr,
-                                   cross_ablate=False,
                                    no_feat_attn=False,
                                    task=task
                                 #    protein_function_class_dims = class_dims
                                    )
         else:
-            self.model = SEGNNModel(num_elements=num_elements,
+            self.model = SEGNNModel(
                                     out_units=1,
                                     hidden_dim=sdim + 3 * vdim + 5 * vdim // 2,
                                     lmax=2,

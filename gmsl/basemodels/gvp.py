@@ -10,7 +10,9 @@ from torch_scatter import scatter
 from gmsl.convs.gvp import GVP, GVPConvLayer, LayerNorm
 from gmsl.modules import GaussianExpansion
 
-
+from gmsl.register import Register
+register = Register()
+@register('gvp')
 class GVPGNN(nn.Module):
     """
     Implements the GVP GNN Backbone
@@ -26,6 +28,7 @@ class GVPGNN(nn.Module):
         n_feedforward: int = 2,
         vector_gate: bool = True,
         activations: Tuple[Callable, Optional[Callable]] = (F.relu, None),
+        **kwargs
     ):
         super(GVPGNN, self).__init__()
         self.node_dims = node_dims

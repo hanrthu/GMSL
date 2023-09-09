@@ -34,7 +34,7 @@ class PDBWebParser(object):
                 protein_dir = os.path.join(self.lba_root, item, item + "_protein.pdb")
                 ligand_dir = os.path.join(self.lba_root, item, item + '_ligand.mol2')
                 return protein_dir, ligand_dir
-        print(item)
+        print("Item not found!", item)
         return -1, -1
     def get_uniprots(self, url_root, pdbs):
         uniprot_dict = {}

@@ -3,21 +3,25 @@ import torch
 from torch import Tensor, nn
 from torch_geometric.nn.inits import reset
 from gmsl.convs import EGCL, EGCL_Edge_Fast, EGCL_Edge_Vallina
+from gmsl.register import Register
+register = Register()
 
+@register('egnn')
 class EGNN(nn.Module):
     def __init__(
         self,
-        dims: Tuple[int, int] = (128, 3),
+        sdim: int = 128,
+        vdim: int = 3,
         hid_dims: int = 64,
         depth: int = 4,
         eps: float = 1e-6,
         cutoff: Optional[float] = 5.0,
         vector_aggr: str = 'mean',
         act_fn = nn.SiLU(),
-        enhanced: bool = False
+        **kwargs
     ):
         super(EGNN, self).__init__()
-        self.dims = dims
+        self.dims = (sdim, vdim)
         self.depth = depth
         self.vector_aggr = vector_aggr
         module = EGCL
@@ -25,9 +29,9 @@ class EGNN(nn.Module):
         for _ in range(depth):
             self.convs.append(
                 module(
-                    in_dims=dims,
+                    in_dims=self.dims,
                     has_v_in=True,
-                    out_dims=dims,
+                    out_dims=self.dims,
                     hid_dims=hid_dims,
                     cutoff=cutoff,
                     vector_aggr=vector_aggr,
@@ -42,16 +46,19 @@ class EGNN(nn.Module):
         edge_attr: Tuple[Tensor, Tensor],
         batch: Tensor,
     ) -> Tuple[Tensor, Tensor]:
-        
+
         s, v = x
         for i in range(len(self.convs)):
             s, v = self.convs[i](x=(s,v), edge_index=edge_index, edge_attr=edge_attr)
         return s, v
-    
+
+@register('egnn_edge')
 class EGNN_Edge(nn.Module):
     def __init__(
         self,
-        dims: Tuple[int, int, int] = (128, 3, 128),
+        sdim: int = 128,
+        vdim: int = 3,
+        edim: int = 128,
         hid_dims: int = 64,
         depth: int = 4,
         eps: float = 1e-6,
@@ -61,7 +68,7 @@ class EGNN_Edge(nn.Module):
         enhanced: bool = True
     ):
         super(EGNN_Edge, self).__init__()
-        self.dims = dims
+        self.dims = (sdim, vdim, edim)
         self.depth = depth
         self.vector_aggr = vector_aggr
         self.enhanced = enhanced
@@ -73,9 +80,9 @@ class EGNN_Edge(nn.Module):
         for _ in range(depth):
             self.convs.append(
                 module(
-                    in_dims=dims,
+                    in_dims=self.dims,
                     has_v_in=True,
-                    out_dims=dims,
+                    out_dims=self.dims,
                     hid_dims=hid_dims,
                     cutoff=cutoff,
                     vector_aggr=vector_aggr,
@@ -94,7 +101,7 @@ class EGNN_Edge(nn.Module):
         alphas: Tensor=None, 
         connection_nodes: Tensor=None
     ) -> Tuple[Tensor, Tensor]:
-        
+
         s, v ,e = x
         if self.enhanced:
             for i in range(len(self.convs)):

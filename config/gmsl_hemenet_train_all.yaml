@@ -1,26 +1,35 @@
 # This is the config file for Heterougeneous Multitask Equivariant Network (HemeNet).
 
 # Lightning Model Settings
-batch_size: 8
-sdim: 128
-vdim: 16
-depth: 3
-model_type: hemenet
-num_radial: 32
-learning_rate: 1.0e-4
-batch_accum_grad: 1
-weight_decay: 0
-max_epochs: 50
-graph_cache_dir: ./datasets/MultiTask/processed_graphs/hetero_fullatom_knn5_spatial4.5_sequential2
-enhanced: False
-readout: weighted_feature
-# [weighted_feature, task_aware_attention]
-# 这些都是EQGAT需要的参数，之后优化掉
-cross_ablate: False
-no_feat_attn: False
-precision: 16
+model_args:
+  sdim: 128
+  vdim: 16
+  depth: 3
+  aggr: 'mean'
+  model_type: hemenet
+  num_radial: 32
+  learning_rate: 1.0e-4
+  weight_decay: 0
+
+  readout: weighted_feature
+  # [weighted_feature, task_aware_attention]
+  r_cutoff: 4.5
+  channel_nf: 128
+  hidden_dims:
+    - 256
+    - 256
+    - 256
+  embedding_dim: 256
+  num_relation: 7
+  channel_dim: 14
+  factor_scheduler: 0.75
+  layer_norm: True
+  batch_norm: True
+
+
 
 #Dataset Settings
+batch_size: 16
 drop_last: False
 run_name: hemenet
 train_task: multi
@@ -28,15 +37,20 @@ train_split: train_all
 val_split: val
 test_split: test
 alpha_only: False
-offset_strategy: 1
-num_workers: 0
+num_workers: 4
+graph_cache_dir: ./datasets/MultiTask/processed_graphs/hetero_fullatom_knn5_spatial4.5_sequential2
 
 # Trainer Settings
-device: 
+device:
+  - 0
+  - 1
   - 2
+  - 3
 nruns: 3
-wandb: True
+wandb: False
 save_dir: hemenet
 gradient_clip_val: 10
 load_ckpt: null
 seed: 817
+batch_accum_grad: 1
+max_epochs: 20

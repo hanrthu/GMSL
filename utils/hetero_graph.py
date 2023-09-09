@@ -8,6 +8,7 @@ from .utils import MyData
 NUM_ATOM_TYPES = 10
 MAX_CHANNEL = 14 # 4 backbone + sidechain
 # The element mapping for atoms
+NUM_ELEMENTS = 31
 element_mapping = lambda x: {
     'Super': 0,
     'H' : 1,
@@ -91,7 +92,6 @@ def gen_multi_channel_coords(
         element = element_protein
     return X, mask, element, chain_id
 
-# Debug Passed
 def hetero_graph_transform(
     item_name: str,
     atom_df: pd.DataFrame,

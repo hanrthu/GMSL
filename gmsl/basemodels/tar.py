@@ -6,8 +6,9 @@ import torch.nn as nn
 from torch.nn.init import kaiming_uniform_
 from torch.nn.init import zeros_
 from typing import Callable
-
-
+from gmsl.register import Register
+register = Register()
+@register('multi_layer_tar')
 class MultiLayerTAR(nn.Module):
     def __init__(self, in_features, hidden_size, out_features,
         num_attention_heads: int = 8,
@@ -33,7 +34,8 @@ class MultiLayerTAR(nn.Module):
              hidden_states = self.readout[i](hidden_states, input, index)
         # output_feature = hidden_states.permute(1, 0, 2)
         return hidden_states
-    
+
+@register('task_aware_readout')
 class TaskAwareReadout(nn.Module):
     def __init__(self, in_features, hidden_size, out_features,
         num_attention_heads: int = 8,

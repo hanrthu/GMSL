@@ -8,20 +8,21 @@ from torch.nn import functional as F
 from torch_scatter import scatter_add
 
 import gmsl.convs.hemenet as layer
-from collections import Mapping, Sequence
-
+from gmsl.register import Register
+register = Register()
+@register('hemenet')
 class HemeNet(nn.Module):
-    def __init__(self, input_dim, embedding_dim, hidden_dims, num_relation, channel_dim, channel_nf, edge_input_dim=None,
+    def __init__(self, sdim, embedding_dim, hidden_dims, num_relation, channel_dim, channel_nf, edge_input_dim=None,
                  batch_norm=False, activation=nn.SiLU(), concat_hidden=False, short_cut=True, 
-                 coords_agg="mean", dropout=0, num_angle_bin=None, layer_norm=False, use_ieconv=False):
+                 coords_agg="mean", dropout=0, num_angle_bin=None, layer_norm=False, use_ieconv=False, **kwargs):
         super(HemeNet, self).__init__()
 
         if not isinstance(hidden_dims, Sequence):
             hidden_dims = [hidden_dims]
-        self.input_dim = input_dim
+        self.input_dim = sdim
         self.embedding_dim = embedding_dim
         self.output_dim = sum(hidden_dims) if concat_hidden else hidden_dims[-1]
-        self.dims = [embedding_dim if embedding_dim > 0 else input_dim] + list(hidden_dims)
+        self.dims = [embedding_dim if embedding_dim > 0 else sdim] + list(hidden_dims)
         self.edge_dims = [edge_input_dim] + self.dims[:-1]
         self.num_relation = num_relation
         self.concat_hidden = concat_hidden
@@ -30,11 +31,7 @@ class HemeNet(nn.Module):
         self.short_cut = short_cut
         self.concat_hidden = concat_hidden
         self.layer_norm = layer_norm
-        self.use_ieconv = use_ieconv  
-
-        if embedding_dim > 0:
-            self.linear = nn.Linear(input_dim, embedding_dim)
-            self.embedding_batch_norm = nn.BatchNorm1d(embedding_dim)
+        self.use_ieconv = use_ieconv
 
         self.layers = nn.ModuleList()
         self.ieconvs = nn.ModuleList()
@@ -104,10 +101,6 @@ class HemeNet(nn.Module):
         coord_hiddens = []
         layer_input = input
         coord_input = coords
-        # 现场给氨基酸进行embedding，所以nodefeature实际上就是氨基酸的序列表示
-        if self.embedding_dim > 0:
-            layer_input = self.linear(layer_input)
-            layer_input = self.embedding_batch_norm(layer_input)
         ieconv_edge_feature = self.get_ieconv_edge_feature(coords, input, channel_weights, edge_list)
 
         for i in range(len(self.layers)):

@@ -1,23 +1,23 @@
 # This is the config file for EGNN.
 
 # Lightning Model Settings
-batch_size: 32
-sdim: 128
-vdim: 16
-depth: 3
-model_type: egnn
-num_radial: 32
-learning_rate: 1.0e-4
-batch_accum_grad: 1
-weight_decay: 0
-max_epochs: 50
-enhanced: False
-readout: weighted_feature
-# 这些都是EQGAT需要的参数，之后优化掉
-cross_ablate: False
-no_feat_attn: False
+model_args:
+  sdim: 128
+  vdim: 16
+  depth: 3
+  aggr: 'mean'
+  model_type: egnn
+  num_radial: 32
+  learning_rate: 1.0e-4
+  weight_decay: 0
+  readout: weighted_feature
+  r_cutoff: 4.5
+  factor_scheduler: 0.75
+  layer_norm: True
+  batch_norm: True
 
 #Dataset Settings
+batch_size: 32
 drop_last: False
 run_name: egnn
 train_task: multi
@@ -29,11 +29,13 @@ offset_strategy: 1
 num_workers: 28
 
 # Trainer Settings
-device: 
+device:
   - 0
 nruns: 3
 wandb: False
 save_dir: egnn
 gradient_clip_val: 10
+batch_accum_grad: 1
 load_ckpt: null
 seed: 817
+max_epochs: 50

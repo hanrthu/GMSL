@@ -19,10 +19,11 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies.ddp import DDPStrategy
 # from itertools import cycle
 from torch.utils.data import Sampler
+from utils.datamodule import GMSLDataModule
 from torch_geometric.loader import DataLoader
 from utils.multitask_data import CustomMultiTaskDataset
 from utils.task_models import AffinityModel, MultiTaskModel, PropertyModel
-
+from utils.datamodule import LiteMultiTaskDataset
 try:
     MODEL_DIR = osp.join(osp.dirname(osp.realpath(__file__)), "models")
 except NameError:
@@ -131,78 +132,6 @@ class CustomBatchSampler(Sampler[List[int]]):
         else:
             return (self.len_main + self.batch_size_main - 1) // self.batch_size_main + (self.len_aux + self.batch_size_aux - 1) // self.batch_size_aux
 
-class LBADataLightning(pl.LightningDataModule):
-    def __init__(
-        self,
-        drop_last,
-        batch_size: int = 64,
-        num_workers: int = 4,
-        train_task: str = 'multi',
-        train_split: str = 'train_all',
-        val_split: str = 'val',
-        test_split: str = 'test',
-        hetero = False,
-        alpha_only = False,
-    ):
-        super(LBADataLightning, self).__init__()
-
-        self.batch_size = batch_size
-        self.num_workers = num_workers
-        self.drop_last = drop_last
-        self.train_task= train_task
-        self.train_split = train_split
-        self.val_split = val_split
-        self.test_split = test_split
-        self.hetero = hetero
-        self.alpha_only = alpha_only
-    @property
-    def num_features(self) -> int:
-        return 9
-
-    @property
-    def num_classes(self) -> int:
-        return 1
-
-    def prepare_data(self):
-        _ = CustomMultiTaskDataset(split='train', task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only)
-        return None
-
-    def setup(self, stage: Optional[str] = None):
-        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only)
-        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only)
-        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only)
-
-    def train_dataloader(self, shuffle: bool = True):
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=shuffle,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            persistent_workers=True,
-        )
-
-    def val_dataloader(self, shuffle: bool = False):
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.batch_size,
-            shuffle=shuffle,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            persistent_workers=True,
-        )
-
-    def test_dataloader(self, shuffle: bool = False):
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            shuffle=shuffle,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            persistent_workers=True,
-        )
-
-
 def choose_monitor(task):
     if task == 'multi':
         monitor = 'val_loss'
@@ -264,75 +193,21 @@ if __name__ == "__main__":
 
     run_results = []
     seed = args.seed
+    datamodule = GMSLDataModule(
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        train_split=args.train_split,
+        val_split=args.val_split,
+        test_split=args.test_split,
+        cache_dir=args.graph_cache_dir,
+        device='cuda' if device != 'cpu' else 'cpu',
+        seed=args.seed
+    )
     for run in range(args.nruns):
         pl.seed_everything(seed, workers=True)
         seed += run
         print(f"Starting run {run} with seed {seed}")
-        hetero = True if (args.model_type=='gearnet' or args.model_type=='hemenet') else False,
-        train_dataset = CustomMultiTaskDataset(split=args.train_split, task=args.train_task, hetero=hetero, alpha_only=args.alpha_only, graph_cache_dir=args.graph_cache_dir)
-        val_dataset = CustomMultiTaskDataset(split=args.val_split, task=args.train_task, hetero=hetero, alpha_only=args.alpha_only, graph_cache_dir=args.graph_cache_dir)
-        test_dataset = CustomMultiTaskDataset(split=args.test_split, task=args.train_task, hetero=hetero, alpha_only=args.alpha_only, graph_cache_dir=args.graph_cache_dir)
-        trainloader = DataLoader(
-            train_dataset,
-            batch_size=args.batch_size,
-            shuffle=True,
-            num_workers=args.num_workers,
-            pin_memory=True,
-            persistent_workers=True if args.num_workers > 0 else False,
-            # prefetch_factor=2
-        )
-        
-        valloader = DataLoader(
-            val_dataset,
-            batch_size=args.batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-            persistent_workers=True if args.num_workers > 0 else False,
-            # prefetch_factor=2
-        )
-        
-        testloader = DataLoader(
-            test_dataset,
-            batch_size=args.batch_size,
-            shuffle=False,
-            num_workers=args.num_workers,
-            pin_memory=True,
-            persistent_workers=True if args.num_workers > 0 else False,
-            # prefetch_factor=2
-        )
-        
-        # datamodule = LBADataLightning(
-        #     batch_size=args.batch_size,
-        #     num_workers=args.num_workers,
-        #     drop_last=args.drop_last,
-        #     # sample_strategy = args.sample_strategy,
-        #     train_task=args.train_task,
-        #     train_split=args.train_split,
-        #     val_split=args.val_split,
-        #     test_split=args.test_split,
-        #     hetero=True if (args.model_type=='gearnet' or args.model_type=='hemenet') else False,
-        #     alpha_only=args.alpha_only
-        #     # auxiliary=None
-        # )
-        model = model_cls(
-            sdim=args.sdim,
-            vdim=args.vdim,
-            depth=args.depth,
-            model_type=args.model_type,
-            learning_rate=args.learning_rate,
-            weight_decay=args.weight_decay,
-            r_cutoff=4.5,
-            num_radial=args.num_radial,
-            max_epochs=args.max_epochs,
-            factor_scheduler=0.75,
-            aggr="mean",
-            use_norm=False,
-            enhanced=args.enhanced,
-            offset_strategy = args.offset_strategy,
-            task=args.train_task,
-            readout=args.readout
-        )
+        model = model_cls(**args.model_args)
         print(
             f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
         )
@@ -346,7 +221,6 @@ if __name__ == "__main__":
             save_last=False,
             verbose=True,
         )
-
         trainer = pl.Trainer(
             devices=device if device != "cpu" else None,
             accelerator="gpu" if device != "cpu" else "cpu",
@@ -362,21 +236,21 @@ if __name__ == "__main__":
             gradient_clip_val=args.gradient_clip_val,
             accumulate_grad_batches=args.batch_accum_grad,
             logger=wandb_logger,
-            strategy=DDPStrategy(find_unused_parameters=True),
+            use_distributed_sampler=False,
+            strategy=DDPStrategy(find_unused_parameters=False),
             num_sanity_val_steps=2,
             benchmark=False,
         )
         # print("Default Type:", torch.get_default_dtype())
         start_time = datetime.now()
-        print("Precision:", args.precision)
-        trainer.fit(model, trainloader, valloader, ckpt_path=args.load_ckpt)
+        trainer.fit(model, datamodule=datamodule, ckpt_path=args.load_ckpt)
 
         end_time = datetime.now()
         time_diff = end_time - start_time
         print(f"Training time: {time_diff}")
 
         # running test set
-        _ = trainer.test(ckpt_path="best", dataloaders=testloader)
+        _ = trainer.test(ckpt_path="best", datamodule=datamodule)
         res = model.res
         run_results.append(res)
 

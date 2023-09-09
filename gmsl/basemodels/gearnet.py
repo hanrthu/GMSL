@@ -7,21 +7,22 @@ from torch.nn import functional as F
 from torch_scatter import scatter_add
 
 import gmsl.convs.gearnet as layer
-from collections import Mapping, Sequence
-
+from gmsl.register import Register
+register = Register()
+@register('gearnet')
 class GearNetIEConv(nn.Module):
 
-    def __init__(self, input_dim, embedding_dim, hidden_dims, num_relation, edge_input_dim=None,
+    def __init__(self, sdim, embedding_dim, hidden_dims, num_relation, edge_input_dim=None,
                  batch_norm=False, activation="relu", concat_hidden=False, short_cut=True, 
-                 readout="sum", dropout=0, num_angle_bin=None, layer_norm=False, use_ieconv=False):
+                 readout="sum", dropout=0, num_angle_bin=None, layer_norm=False, use_ieconv=False, **kwargs):
         super(GearNetIEConv, self).__init__()
 
         if not isinstance(hidden_dims, Sequence):
             hidden_dims = [hidden_dims]
-        self.input_dim = input_dim
+        self.input_dim = sdim
         self.embedding_dim = embedding_dim
         self.output_dim = sum(hidden_dims) if concat_hidden else hidden_dims[-1]
-        self.dims = [embedding_dim if embedding_dim > 0 else input_dim] + list(hidden_dims)
+        self.dims = [embedding_dim if embedding_dim > 0 else sdim] + list(hidden_dims)
         self.edge_dims = [edge_input_dim] + self.dims[:-1]
         self.num_relation = num_relation
         self.concat_hidden = concat_hidden
@@ -32,9 +33,9 @@ class GearNetIEConv(nn.Module):
         self.layer_norm = layer_norm
         self.use_ieconv = use_ieconv  
 
-        if embedding_dim > 0:
-            self.linear = nn.Linear(input_dim, embedding_dim)
-            self.embedding_batch_norm = nn.BatchNorm1d(embedding_dim)
+        # if embedding_dim > 0:
+        #     self.linear = nn.Linear(sdim, embedding_dim)
+        #     self.embedding_batch_norm = nn.BatchNorm1d(embedding_dim)
 
         self.layers = nn.ModuleList()
         self.ieconvs = nn.ModuleList()
@@ -99,9 +100,9 @@ class GearNetIEConv(nn.Module):
         # print("Layer Input:", layer_input.shape)
         # print("Input and embedding dim:", self.input_dim, self.embedding_dim)
         # 现场给氨基酸进行embedding，所以nodefeature实际上就是氨基酸的序列表示
-        if self.embedding_dim > 0:
-            layer_input = self.linear(layer_input)
-            layer_input = self.embedding_batch_norm(layer_input)
+        # if self.embedding_dim > 0:
+        #     layer_input = self.linear(layer_input)
+        #     layer_input = self.embedding_batch_norm(layer_input)
         if self.num_angle_bin:
             edge_hidden = None
             # line_graph = self.spatial_line_graph(graph)

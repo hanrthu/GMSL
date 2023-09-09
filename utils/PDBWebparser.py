@@ -1,9 +1,9 @@
 import requests
 from bs4 import BeautifulSoup
-from selenium import webdriver
+# from selenium import webdriver
 import time
 import random
-import re
+# import re
 import os
 from tqdm import tqdm
 import json

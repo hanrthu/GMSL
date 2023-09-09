@@ -6,27 +6,30 @@ from torch_geometric.typing import OptTensor
 
 from gmsl.modules import BatchNorm, LayerNorm
 from gmsl.convs import EQGATConv, EQGATConvNoCross, EQGATNoFeatAttnConv
-
-
+from gmsl.register import Register
+register = Register()
+@register('eqgat')
 class EQGATGNN(nn.Module):
     def __init__(
         self,
-        dims: Tuple[int, int] = (128, 32),
+        sdim: int = 128,
+        vdim: int = 32,
         depth: int = 5,
         eps: float = 1e-6,
         cutoff: Optional[float] = 5.0,
         num_radial: Optional[int] = 32,
-        use_norm: bool = False,
+        layer_norm: bool = False,
         basis: str = "bessel",
         use_mlp_update: bool = True,
         use_cross_product: bool = True,
         no_feat_attn: bool = False,
-        vector_aggr: str = "mean"
+        vector_aggr: str = "mean",
+        **kwargs
     ):
         super(EQGATGNN, self).__init__()
-        self.dims = dims
+        self.dims = (sdim, vdim)
         self.depth = depth
-        self.use_norm = use_norm
+        self.use_norm = layer_norm
         self.convs = nn.ModuleList()
         self.norms = nn.ModuleList()
         self.use_cross_product = use_cross_product
@@ -47,9 +50,9 @@ class EQGATGNN(nn.Module):
         for i in range(depth):
             self.convs.append(
                 module(
-                    in_dims=dims,
+                    in_dims=self.dims,
                     has_v_in=i > 0,
-                    out_dims=dims,
+                    out_dims=self.dims,
                     cutoff=cutoff,
                     num_radial=num_radial,
                     eps=eps,
@@ -58,9 +61,9 @@ class EQGATGNN(nn.Module):
                     vector_aggr=vector_aggr
                 )
             )
-            if use_norm:
+            if layer_norm:
                 self.norms.append(
-                    LayerNorm(dims=dims, affine=True)
+                    LayerNorm(dims=self.dims, affine=True)
                 )
         self.apply(fn=reset)
 
