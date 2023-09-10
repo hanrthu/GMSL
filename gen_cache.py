@@ -84,6 +84,130 @@ def test_func(item:str,label:str,split:str="train",cache_dir:str="./datasets/Enz
                                     'atoms_protein': protein_df, 'protein_seq': protein_seq, 'atoms_ligand':None}
     processed_complexes.append(processed_complex)
     print("processed_complex:",processed_complex)
+def gen_protein_property_uniprots(json_dir: str, single=True):
+    with open(json_dir, 'r') as f:
+        info_dict = json.load(f)
+    uniprot_dict = {}
+    # print(len(info_dict))
+    info_dict_new = {}
+    for k, v in info_dict.items():
+        if single:
+            if len(v) != 1:
+                continue
+            else:
+                uniprot_id = v[0]
+                info_dict_new[k] = [uniprot_id]   
+                # 只记录同一个uniprot id的所有pdb_id
+                if uniprot_id not in uniprot_dict:     
+                    uniprot_dict[uniprot_id] = k
+                # else:
+                #     uniprot_dict[uniprot_id].append(k)
+        else:
+            # Remove items whose uniprot ids are larger than 3 or equal zero.
+            if len(v) == 0 or len(v) > 3:
+                continue
+            else:
+                info_dict_new[k] = v
+                for uniprot_id in v:
+                    if uniprot_id not in uniprot_dict:
+                        uniprot_dict[uniprot_id] = [k]
+                    else:
+                        uniprot_dict[uniprot_id].append(k)
+    # print("Unitest:", len(uniprot_dict), len(info_dict_new))
+    return uniprot_dict, info_dict_new
+
+def gen_cache_for_multi_new_new():
+    '''
+    在multitask new的基础上，给每一个protein_df添加一列：domains(列表，因为每一个氨基酸可能属于多个域)
+    修改labels
+    '''
+    
+
+def gen_cache_for_multi_new_new():
+    '''
+    在multitask new的基础上，给每一个protein_df添加一列：domains(列表，因为每一个氨基酸可能属于多个域)
+    修改labels
+    '''
+    src_complexes = []
+    src_complexes_dict = dict()
+    file_name_list = ['train','test','val',"train_all"]
+    
+    for cache_file_name in file_name_list:
+        cache_file = open("./datasets/MultiTaskNew/" + cache_file_name + '.cache','rb')
+        src_complexes.extend(pickle.load(cache_file))
+        
+    for a_complex in src_complexes:
+        src_complexes_dict[a_complex['complex_id']] = a_complex
+    
+    tar_complexes = []
+    new_labels = json.load(open('./datasets/MultiTaskNewNew/uniformed_labels.json'))
+    domain_dict = json.load(open('./output_info/domain_info.json'))
+    fold_uniprot_dict,fold_info_dict = gen_protein_property_uniprots('./output_info/Homology_uniprots.json',False)
+    
+    for file_name in file_name_list:
+        f = open('./datasets/MultiTaskNewNew/'+file_name+'.txt')
+        cache_dir = './datasets/MultiTaskNewNew/'+file_name +'.cache'
+        for line in f.readlines():
+            pdb_id = line.strip()
+            pdb_id = "5d7j"
+            try:
+                a_complex = src_complexes_dict[pdb_id]
+            except:
+                print("{} not found in cache!".format(pdb_id))
+                continue
+            new_label = new_labels[pdb_id]
+            
+            protein_df = a_complex['atoms_protein']
+            chain_ids = list(protein_df['chain'])
+            domain_ids = [[]]*len(chain_ids)
+            for idx,fold_uniprot_label in enumerate(new_label['fold']):
+                
+                if isinstance(fold_uniprot_label,int):
+                    pass
+                else:
+                    uniprot_id = new_label['uniprots'][idx]
+                    # 查看当前uniprot是当前pdb的几号链
+                    for fold_candidate in fold_uniprot_label[uniprot_id]:
+                        if(pdb_id in fold_candidate):
+                            chain_id = fold_candidate[-2].upper()
+                    for (fold_item,label) in fold_uniprot_label:
+                        item_domain = domain_dict[fold_item].split(':')[-1]
+                        if item_domain == "":
+                            chain_id = chain_ids[0]
+                            from_idx = 0
+                            to_idx = len(chain_ids) # 左闭右开区间
+                            pass # 整个链
+                        else:
+                            from_idx,to_idx = item_domain.split('-')
+                            from_idx = from_idx -1
+                            # 这里的from和to指的都是第几个氨基酸，要转化成是第几个原子
+                        # 要和uniprot对应,根据uniprot id查找当前蛋白质的链
+                            
+                        for idx,ch in enumerate(chain_ids):          
+                            if ch == chain_id:
+                                base_idx = idx
+                                break
+                        try:
+                            from_idx = base_idx + from_idx
+                            to_idx = base_idx + to_idx
+                        except:
+                            print("{} chain not exist".format(chain_id))
+                        for idx in range(from_idx,to_idx):
+                            domain_ids[idx].append(fold_item)
+            protein_df.insert(protein_df.shape[1],'domain_ids',domain_ids)  
+            print("protein_df:")
+            print(protein_df)       
+            a_complex['atoms_protein'] = protein_df
+            a_complex['labels'] = new_label
+            tar_complexes.append(a_complex)
+        pickle.dump(tar_complexes, open(cache_dir, 'wb'))
+    
+     
+            
+                        
+                        
+            
+            
 def gen_cache_for_reaction(labels:dict,split:str="train",cache_dir:str="./datasets/ProtFunc/train.cache",remove_hoh:bool=True,remove_hydrogen:bool=False):
     file_path = "./datasets/ProtFunc/{}.txt".format(split)
     file = open(file_path, "r")
@@ -170,6 +294,7 @@ def gen_cache_for_reaction(labels:dict,split:str="train",cache_dir:str="./datase
                                     'atoms_protein': protein_df, 'protein_seq': protein_seq, 'atoms_ligand':None}
         processed_complexes.append(processed_complex)
         success_count += 1
+        
     pickle.dump(processed_complexes, open(cache_dir, 'wb'))
     # processed_complexes = pickle.load(open(cache_dir, 'rb'))
     # print("processed_complexes:",processed_complexes)
@@ -273,10 +398,11 @@ def gen_cache_for_fold(labels,split:str="training",cache_dir:str="./datasets/Hom
     print("succ times:",succ)
 if __name__ == "__main__":
     # test_func("4QW3-K","fake label")
-    with open("./datasets/ProtFunc/uniformed_labels.json", 'r') as f:
-        labels = json.load(f)  
-    for split in ["train","test","val"]:
-        gen_cache_for_reaction(labels,split,"./datasets/ProtFunc/{}.cache".format(split))
+    # with open("./datasets/ProtFunc/uniformed_labels.json", 'r') as f:
+    #     labels = json.load(f)  
+    # for split in ["train","test","val"]:
+    #     gen_cache_for_reaction(labels,split,"./datasets/ProtFunc/{}.cache".format(split))
     # labels = gen_label_for_fold()
     # for split in ["train","test_fold","test","test_superfamily","val"]:
     #     gen_cache_for_fold(labels,split,"./datasets/HomologyTAPE/"+split+".cache")
+    gen_cache_for_multi_new_new()

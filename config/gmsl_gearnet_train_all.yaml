@@ -35,5 +35,5 @@ nruns: 3
 wandb: True
 save_dir: gearnet
 gradient_clip_val: 10
-load_ckpt: ./lightning_logs/kvm3tepb/checkpoints/model-epoch=37-val_eloss=0.0000.ckpt
+load_ckpt: False
 seed: 817

@@ -28,12 +28,42 @@ from utils import MyData, prot_graph_transform, hetero_graph_transform
 pybel.ob.obErrorLog.SetOutputLevel(0)
 atomic_num_dict = lambda x: {1: 'H', 2: 'HE', 3: 'LI', 4: 'BE', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 11: 'NA',
                    15: 'P', 16: 'S', 17: 'Cl', 20:'Ca', 25: 'MN', 26: 'FE', 30: 'ZN', 35: 'Br', 53: 'I', 80: 'Hg'}.get(x, 'Others')
-
+def gen_protein_property_uniprots(json_dir: str, single=True):
+    with open(json_dir, 'r') as f:
+        info_dict = json.load(f)
+    uniprot_dict = {}
+    # print(len(info_dict))
+    info_dict_new = {}
+    for k, v in info_dict.items():
+        if single:
+            if len(v) != 1:
+                continue
+            else:
+                uniprot_id = v[0]
+                info_dict_new[k] = [uniprot_id]   
+                # 只记录同一个uniprot id的所有pdb_id
+                if uniprot_id not in uniprot_dict:     
+                    uniprot_dict[uniprot_id] = k
+                # else:
+                #     uniprot_dict[uniprot_id].append(k)
+        else:
+            # Remove items whose uniprot ids are larger than 3 or equal zero.
+            if len(v) == 0 or len(v) > 3:
+                continue
+            else:
+                info_dict_new[k] = v
+                for uniprot_id in v:
+                    if uniprot_id not in uniprot_dict:
+                        uniprot_dict[uniprot_id] = [k]
+                    else:
+                        uniprot_dict[uniprot_id].append(k)
+    # print("Unitest:", len(uniprot_dict), len(info_dict_new))
+    return uniprot_dict, info_dict_new
 class CustomMultiTaskDataset(Dataset):
     """
     The Custom MultiTask Dataset with uniform labels
     """
-    def __init__(self, root_dir: str = './datasets/MultiTaskNew', label_dir: str = './datasets/MultiTaskNew/uniformed_labels.json',
+    def __init__(self, root_dir: str = './datasets/MultiTaskNewNew', label_dir: str = './datasets/MultiTaskNewNew/uniformed_labels.json',
                 remove_hoh = True, remove_hydrogen = False, cutoff = 6, split : str = 'train', task = 'multi', gearnet = False, alpha_only=False):
         super(CustomMultiTaskDataset, self).__init__(root_dir)
         print("Initializing MultiTask Dataset...")
@@ -55,7 +85,7 @@ class CustomMultiTaskDataset(Dataset):
         with open(file_dir, 'r') as f:
             self.files = f.readlines()
             self.files = [i.strip() for i in self.files]
-        if split not in ['train', 'val', 'test', 'train_all','train_ec', 'val_ec', 'test_ec']:
+        if split not in ['train', 'val', 'test', 'train_all']:
             print("Wrong selected split. Have to choose between ['train', 'val', 'test', 'test_all']")
             print("Exiting code")
             exit()
@@ -127,6 +157,9 @@ class CustomMultiTaskDataset(Dataset):
         else:
             print("Cache not found! Start processing Multitask files...Total Number {}".format(len(self.files)))
             # count = 0
+            domain_dict = json.load(open('./output_info/domain_info.json'))
+            uniprot_pdb_chain_dict = json.load(open('./output_info/uniprot_pdb_chain_dict.json'))
+            fold_uniprot_dict,fold_info_dict = gen_protein_property_uniprots('./output_info/Homology_uniprots.json',False)
             for score_idx, item in enumerate(tqdm(self.files)):
                 structure_dir, ligand_dir = self.find_structure(item)
                 # print("cache_dir", self.cache_dir)
@@ -154,6 +187,7 @@ class CustomMultiTaskDataset(Dataset):
                     continue
                 model = structure[0]
                 chains = list(model.get_chains())
+                
                 if ligand_dir == 0:
                     # chains = list(model.get_chains()) 
                     print("{} only has reaction lable".format(item))
@@ -177,11 +211,11 @@ class CustomMultiTaskDataset(Dataset):
                 protein_seq = []
                 names = []
                 resnames = []
-                # chain = chains[0]
+                idx_in_chain = [] # 属于这条链中的第几个残基
                 for chain in chains:
                     if chain.id == ' ':
                         continue
-                    for residue in chain.get_residues():
+                    for idx,residue in enumerate(chain.get_residues()):
                         # 删除HOH原子
                         if self.remove_hoh and residue.get_resname() == 'HOH':
                             continue
@@ -211,8 +245,45 @@ class CustomMultiTaskDataset(Dataset):
                             xs.append(x)
                             ys.append(y)
                             zs.append(z)
-                protein_df = pd.DataFrame({'chain': chain_ids, 'resname': resnames, 'element': elements, 'name': names, 'x': xs, 'y': ys, 'z': zs})
+                            idx_in_chain.append(idx)
+                
+                domain_ids = [[]]*len(chain_ids)
+                fold_labels = self.labels[item]['fold:']
+                
+                for idx,fold_uniprot_label in enumerate(fold_labels):
+                    if isinstance(fold_uniprot_label,int):
+                        pass
+                    else:
+                        uniprot_id = self.labels[item]['uniprots'][idx]
+                    # 查看当前uniprot是当前pdb的几号链
+                        try:
+                            chain_id = uniprot_pdb_chain_dict[uniprot_id][item]
+                        except:
+                            continue
+                        # print(fold_uniprot_label)
+                        for (fold_item,label) in fold_uniprot_label.items():
+                            item_domain = domain_dict[fold_item].split(':')[-1]
+                            if item_domain == "":
+                                for idx,ch_id in enumerate(chain_ids):
+                                    if chain_ids[idx] == chain_id:
+                                        domain_ids[idx].append(fold_item)
+                            else:
+                                try:    
+                                    from_res_idx,to_res_idx = item_domain.split('-')
+                                
+                                    from_res_idx = int(from_res_idx) -1
+                                    to_res_idx = int(to_res_idx)
+                                except:
+                                    print("Cannot extract domain of:",fold_item)
+                                    continue
+                                for idx,ch_id in enumerate(chain_ids):
+                                    if chain_ids[idx] == chain_id and idx_in_chain[idx] >= from_res_idx and idx_in_chain[idx] < to_res_idx:
+                                        domain_ids[idx].append(fold_item)
+                                
+                            # 这里的from和to指的都是第几个氨基酸，要转化成是第几个原子
+                protein_df = pd.DataFrame({'chain': chain_ids, 'resname': resnames, 'element': elements, 'name': names, 'x': xs, 'y': ys, 'z': zs,'domain_ids':domain_ids})
                 processed_complex['atoms_protein'] = protein_df
+                # json.dump({'chain': chain_ids, 'resname': resnames, 'element': elements, 'name': names, 'x': xs, 'y': ys, 'z': zs,'domain_ids':domain_ids},open("./output_info/protein_df/"+item,"w"))
                 processed_complex['protein_seq'] = protein_seq
                 
                 self.processed_complexes.append(processed_complex)
@@ -857,6 +928,9 @@ class GNNTransformEC(object):
 
 
 class GNNTransformMultiTask(object):
+    '''
+    包含reaction和fold
+    '''
     def __init__(
         self,
         cutoff: float = 4.5,
@@ -900,6 +974,7 @@ class GNNTransformMultiTask(object):
         labels = item["labels"]
         pf_ids = []
         #目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
+        # lig_flag标示着每一个原子属于chain_ids中的第几个chain
         for i, id in enumerate(chain_ids):
             lig_flag[torch.tensor(list(atom_df['chain'] == id))] = i + 1
             if '-' in item['complex_id']:
@@ -937,6 +1012,7 @@ class GNNTransformMultiTask(object):
         ec = labels['ec']
         go = labels['go']
         reaction = labels['reaction']
+        fold = labels['fold:']
         graph.affinities = torch.FloatTensor([lba, ppi]).unsqueeze(0)
         if lba != -1:
             graph.affinity_mask = torch.tensor([1, 0]).unsqueeze(0)
@@ -944,7 +1020,27 @@ class GNNTransformMultiTask(object):
             graph.affinity_mask = torch.tensor([0, 1]).unsqueeze(0)
         else:
             graph.affinity_mask = torch.tensor([0, 0]).unsqueeze(0)
-
+        '''
+        fold 和 ec go reaction的预测不混在一起，单独预测
+        '''
+        graph.domains = list(set(protein_df['domain_ids']))
+        domain_num_classes = 1195
+        graph.folds = []
+        for domain_id in graph.domains:
+            # 查找对应的fold_class
+            fold_label = torch.zeros(domain_num_classes)
+            fold_label[fold[domain_id]] = 1
+            graph.folds.append(fold_label)
+            graph.folds = torch.vstack(graph.folds)
+        # 仿照lig_flag构造一个fold_flag，但是lig_flag是一维的，我应该构造fold_flags，len(domain_ids)*atom_df.shape[0]
+        graph.fold_flags = []
+        for idx,domain_id in enumerate(graph.domains):
+            fold_flag = torch.zeros(atom_df.shape[0], dtype=torch.long)
+            fold_flag[torch.tensor(list(atom_df['domain_id'] == domain_id))] = idx + 1
+            graph.fold_flags.append(fold_flag)
+        graph.fold_flags = torch.vstack(graph.fold_flags)
+        
+        
         graph.functions = []
         graph.valid_masks = []
         for i, pf_id in enumerate(pf_ids):

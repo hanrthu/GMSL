@@ -202,6 +202,18 @@ class BaseModel(nn.Module):
             self.property_heads = nn.ModuleList()
             for head in heads:
                 self.property_heads.append(head)
+        # TODO 新建一个fold head
+        if self.task == 'multi':
+            fold_class_nums = [1195]
+            heads = [nn.Sequential(
+                DenseLayer(sdim, sdim, activation=nn.SiLU(), bias=True),
+                nn.Dropout(dropout),
+                DenseLayer(sdim, class_num, bias=True),
+                nn.Sigmoid()
+            ) for class_num in fold_class_nums]
+            self.fold_heads = nn.ModuleList()
+            for head in heads:
+                self.fold_heads.append(head)
         
         if self.model_type == "egnn_edge":
             # 辅助任务，预测距离
@@ -215,15 +227,19 @@ class BaseModel(nn.Module):
         if readout == 'task_aware_attention':
             self.affinity_prompts = nn.Parameter(torch.ones(len(self.affinity_heads), 1, sdim))
             self.property_prompts = nn.Parameter(torch.ones(len(self.property_heads), 1, sdim))
+            self.fold_prompts = nn.Parameter(torch.ones(len(self.fold_heads),1,sdim))
             self.global_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.affinity_heads))
             self.chain_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.property_heads))
+            self.domain_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.fold_heads))
             # print(self.affinity_prompts.shape)
             # print(self.property_prompts.shape)
         elif readout == 'weighted_feature':
             self.affinity_weights = nn.Parameter(torch.ones(len(self.affinity_heads), 1, sdim))
             self.property_weights = nn.Parameter(torch.ones(len(self.property_heads), 1, sdim))
+            self.fold_weights = nn.Parameter(torch.ones(len(self.fold_heads), 1, sdim))
             nn.init.kaiming_normal_(self.affinity_weights)
             nn.init.kaiming_normal_(self.property_weights)
+            nn.init.kaiming_normal_(self.fold_weights)
         self.graph_pooling = graph_pooling
         self.apply(reset)
 
@@ -303,11 +319,12 @@ class BaseModel(nn.Module):
                 
                 y_pred = scatter(s * self.affinity_weights, index=batch, dim=1, reduce=self.graph_pooling)
                 chain_pred = scatter(s[(lig_flag!=0).squeeze(), :] * self.property_weights, index=(chains-1).squeeze(), dim=1, reduce=self.graph_pooling)
+                # TODO domain_pred = 
                 # print("After",chain_pred.shape)
                 if self.task == 'multi':
                     affinity_pred = [affinity_head(y_pred[i].squeeze()) for i, affinity_head in enumerate(self.affinity_heads)]
                     property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
-                    # print(property_pred[4])
+                    # TODO fold_pred = 
                     return affinity_pred, property_pred
                 elif self.task in ['ec', 'go', 'mf', 'bp', 'cc','reaction']:
                     property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]

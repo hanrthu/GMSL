@@ -7,6 +7,101 @@ import re
 import os
 from tqdm import tqdm
 import json
+requests.adapters.DEFAULT_RETRIES =5
+def get_domain_download_file():
+    url="https://scop.berkeley.edu/downloads/scopseq-1.75/astral-scopdom-seqres-gd-sel-gs-bib-95-1.75.fa"
+    # headers = {"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.69","Connection":"close"}
+    e = requests.get(url)
+    soup = BeautifulSoup(e.text, 'html.parser')
+    pre = soup.find_all("pre")
+    text = pre[0].string
+    print(text)
+
+# def test():
+#     ua = UserAgent()
+#     print(ua.random)  # 随机产生
+ 
+#     headers = {
+#     'User-Agent': ua.random    # 伪装
+#     }
+ 
+#     # 请求
+#     url = 'https://www.baidu.com/'
+#     response = requests.get(url, headers=headers)
+#     print(response.status_code)
+
+def get_domain_scop_all():
+    root_dir = "./datasets/HomologyTAPE/"
+    fail_times = 0
+    output_file = open('./output_info/domain.txt','a')
+    item_list = []
+    for filename in ["train.txt","test_superfamily.txt","test_family.txt","test_fold.txt","val.txt"]:
+        f = open(root_dir+filename,'r')
+        for line in f.readlines():
+            item = line.split('\t')[0]
+            item_list.append(item)
+
+    # for idx,item in enumerate(item_list):
+    #     if(item=="d1izoa_"):
+    #         item_list = item_list[(idx+1):]
+    #         break
+    item_list = item_list[180:]
+    for item in tqdm(item_list):
+        domain = get_domain_scop(item)
+        if(domain==""):
+            fail_times += 1
+            print("{} not found! Fail times:{}".format(item,fail_times))
+            continue
+        output_file.write(item+'\t'+domain+'\n')
+            
+
+def get_domain_scop(fold_item:str="d1fhja_"):
+    url = "https://scop.berkeley.edu/search/?key={}".format(fold_item)
+    # proxies = {"https":"47.100.104.247:8080","http":"36.248.10.47:8080", }
+    headers = {"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.69"}
+    # e = requests.get(url,proxies=proxies,headers=headers)
+    # print(e.text)
+    e = ''
+    time.sleep(random.uniform(0.1,1))
+    while e == '':
+            try:
+                # e = requests.get(url,proxies=proxies,headers=headers)
+                
+
+                s = requests.session()
+
+                s.keep_alive = False
+
+                e = s.get(url)
+
+                break
+            except:
+                print("Connection refused by the server..")
+                print("Let me sleep for 5 seconds")
+                print("ZZzzzz...")
+                time.sleep(5)
+                print("Was a nice sleep, now let me continue...")
+                continue
+    soup = BeautifulSoup(e.text, 'html.parser')
+    pres = soup.find_all("pre")
+    pattern = r"\(.*?\)"
+    if(len(pres)>0):
+        text = pres[0].string
+        res = re.search(pattern,text).group()
+        return res.strip('(').strip(')')
+    else:
+        lis = soup.find_all("li")
+        for li in lis:
+            # print(li)
+            li = BeautifulSoup(str(li), 'html.parser')
+            try:
+                a = li.find('a')
+                if(fold_item in a.string):
+                    domain = a.string.split(' ')[-1]
+                    return domain
+            except:
+                pass
+        return ""
 def get_uniprots(url_root, pdbs, chain : bool = False):
     uniprot_dict = {}
     for i in tqdm(range(len(pdbs))):
@@ -140,7 +235,10 @@ def gen_info_list(json_dir):
     return info_list
 
 if __name__ == '__main__':
-    parse_info_fold()
+    # test()
+    # get_domain_scop_all()
+    get_domain_download_file()
+    # parse_info_fold()
     # if not os.path.exists('./output_info/protein_ligand_uniprots.json') or not os.path.exists('./output_info/protein_protein_uniprots.json'):
     #     print("Parsing PDBBind from PDBbank...")
     #     parse_info_PDBBind()

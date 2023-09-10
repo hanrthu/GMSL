@@ -179,6 +179,8 @@ class LBADataLightning(pl.LightningDataModule):
         self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
         self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
         self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
+        print("finishe gen cache")
+        exit(1)
 
     def train_dataloader(self, shuffle: bool = False):
         # if self.auxiliary != None:
@@ -404,6 +406,8 @@ if __name__ == "__main__":
             alpha_only=args.alpha_only
             # auxiliary=None
         )
+        print("finish gen cache")
+        # exit(1)
         print("model_cls:",model_cls)
         model = model_cls(
             args=args,
@@ -455,14 +459,14 @@ if __name__ == "__main__":
 
         start_time = datetime.now()
 
-        trainer.fit(model, datamodule=datamodule, ckpt_path=args.load_ckpt)
+        trainer.fit(model, datamodule=datamodule, ckpt_path=None)
 
         end_time = datetime.now()
         time_diff = end_time - start_time
         print(f"Training time: {time_diff}")
 
         # running test set
-        _ = trainer.test( datamodule=datamodule)
+        _ = trainer.test( datamodule=datamodule,ckpt_path="best")
         res = model.res
         run_results.append(res)
 
