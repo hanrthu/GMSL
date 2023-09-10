@@ -12,7 +12,7 @@ batch_accum_grad: 1
 weight_decay: 0
 max_epochs: 30
 enhanced: False
-readout: weighted_feature
+readout: vanilla
 # 这些都是EQGAT需要的参数，之后优化掉
 cross_ablate: False
 no_feat_attn: False

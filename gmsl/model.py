@@ -8,22 +8,21 @@ from torch_geometric.nn.inits import reset
 from typing import Optional
 
 from gmsl.modules import DenseLayer, GatedEquivBlock, LayerNorm, GatedEquivBlockTP
-from gmsl.basemodels import EQGATGNN, PaiNNGNN, SchNetGNN, GVPNetwork, \
-                            EGNN, EGNN_Edge, GearNetIEConv, MultiLayerTAR, HemeNet
+from gmsl.basemodels import EQGATGNN, PaiNNGNN, SchNetGNN, GVPNetwork, EGNN, EGNN_Edge, GearNetIEConv, TaskAwareReadout
 
 # SEGNN
 from gmsl.segnn.segnn import SEGNN
 from gmsl.segnn.balanced_irreps import BalancedIrreps
 from e3nn.o3 import Irreps
 from e3nn.o3 import spherical_harmonics
-from utils.hetero_graph import MAX_CHANNEL
+
 
 class BaseModel(nn.Module):
     def __init__(
         self,
         num_elements: int,
         out_units: int,
-        sdim: int = 512,
+        sdim: int = 128,
         vdim: int = 16,
         depth: int = 3,
         r_cutoff: float = 5.0,
@@ -38,16 +37,15 @@ class BaseModel(nn.Module):
         no_feat_attn: bool = False,
         enhanced: bool = True,
         task = 'multitask',
-        readout = 'vanilla',
-        batch_norm = True,
-        layer_norm = True
+        readout = 'vanilla'
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "egnn", "egnn_edge", "gearnet", "hemenet"]:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "egnn", "egnn_edge", "gearnet"]:
             print("Wrong select model type")
             print("Exiting code")
             exit()
 
         super(BaseModel, self).__init__()
+
         self.sdim = sdim
         self.vdim = vdim
         self.depth = depth
@@ -59,13 +57,10 @@ class BaseModel(nn.Module):
         self.out_units = out_units
         self.enhanced = enhanced
         self.task = task
-        max_channel = MAX_CHANNEL
-        channel_nf = sdim
         
         self.init_embedding = nn.Embedding(num_embeddings=num_elements, embedding_dim=sdim)
         self.init_e_embedding = nn.Embedding(num_embeddings=20, embedding_dim=sdim)
-        # 14 is the n_channel size
-        self.channel_attr = nn.Embedding(num_embeddings=MAX_CHANNEL, embedding_dim=sdim)
+        
         if self.model_type == "painn":
             self.gnn = PaiNNGNN(
                 dims=(sdim, vdim),
@@ -110,18 +105,17 @@ class BaseModel(nn.Module):
             concat_hidden = True
             hidden_dims = [512, 512, 512, 512, 512, 512]
             self.gnn = GearNetIEConv(
-                input_dim=31,
+                input_dim=21,
                 embedding_dim=128, # ?怎么没看到config里面设置
                 hidden_dims=hidden_dims,
-                batch_norm=batch_norm,
-                layer_norm=layer_norm,
+                batch_norm=True,
                 concat_hidden=concat_hidden,
                 short_cut=True,
-                # readout='sum',
+                readout='sum',
                 num_relation=7,
                 # 这个59维包括了inresidue（20），outresidue（20），relation（7），sequentialdist（11）和spatialdist（1）
                 edge_input_dim=59,
-                num_angle_bin=8
+                num_angle_bin=8,
             )
             if concat_hidden == True:
                 sdim = 0
@@ -129,40 +123,6 @@ class BaseModel(nn.Module):
                     sdim += i
             else:
                 sdim = hidden_dims[-1]
-        elif self.model_type == "hemenet":
-            concat_hidden = True
-            # TODO: 建立一个Residue的map，可以根据不同的residue来自动学习
-            # weights = torch.where(
-            #     self.atom_weights_mask,
-            #     self.zero_atom_weight,
-            #     self.atom_weight
-            # )  # [num_aa_classes, max_atom_number(n_channel)]
-            # if not self.fix_atom_weights:
-            #     weights = F.normalize(weights, dim=-1)
-            # weights = weights[residue_types]
-            hidden_dims = [512, 512, 512, 512, 512, 512]
-            self.gnn = HemeNet(
-                input_dim=31,
-                embedding_dim=512, # ?怎么没看到config里面设置
-                hidden_dims=hidden_dims,
-                channel_dim = max_channel,
-                channel_nf=channel_nf,
-                batch_norm=batch_norm,
-                layer_norm=layer_norm,
-                concat_hidden=concat_hidden,
-                short_cut=True,
-                num_relation=7,
-                # 这个59维包括了inresidue（20），outresidue（20），relation（7），sequentialdist（11）和spatialdist（1）
-                edge_input_dim=59,
-                num_angle_bin=8
-            )
-            if concat_hidden == True:
-                sdim = 0
-                for i in hidden_dims:
-                    sdim += i
-            else:
-                sdim = hidden_dims[-1]
-
         elif self.model_type == "schnet":
             self.gnn = SchNetGNN(
                 dims=sdim,
@@ -174,7 +134,7 @@ class BaseModel(nn.Module):
             )
 
         self.use_norm = use_norm
-
+        print("self.task:",self.task)
         if self.model_type in ["schnet", "egnn", "gearnet"]:
             if use_norm:
                 self.post_norm = LayerNorm(dims=(sdim, None))
@@ -194,9 +154,9 @@ class BaseModel(nn.Module):
                                             hs_dim=sdim, hv_dim=vdim,
                                             use_mlp=False)
         
-        if self.task in ['lba', 'ppi', 'multi', 'affinity']:
+        if self.task in ['lba', 'ppi', 'multi']:
             self.affinity_heads = nn.ModuleList()
-            if self.task == 'lba' or self.task == 'ppi' or self.task == 'affinity':
+            if self.task == 'lba' or self.task == 'ppi':
                 self.affinity_heads.append(nn.Sequential(
                     DenseLayer(sdim, sdim, activation=nn.SiLU(), bias=True),
                     nn.Dropout(dropout),
@@ -217,27 +177,16 @@ class BaseModel(nn.Module):
                 self.affinity_heads.append(ppi)
         if self.task == 'ec':
             class_nums = [538]
-            # class_nums = [3615]
         elif self.task == 'mf':
             class_nums = [490]
-            # class_nums = [5348]
         elif self.task == 'bp':
             class_nums = [1944]
-            # class_nums = [10285]
         elif self.task == 'cc':
             class_nums = [321]
-            # class_nums = [1901]
         elif self.task == 'go':
             class_nums = [490, 1944, 321]
-            # class_nums = [5348, 10285, 1901]
-        elif self.task == 'reaction':
-            class_nums = [384]
-        elif self.task == 'fold':
-            class_nums = [1195]
         elif self.task == 'multi':
-            class_nums = [538, 490, 1944, 321, 384, 1195]
-            # class_nums = [3615, 490, 1944, 321]
-            # class_nums = [3615, 5348, 10285, 1901]
+            class_nums = [538, 490, 1944, 321,384]
         else:
             class_nums = []
         # print("Class Nums:", class_nums)
@@ -251,6 +200,36 @@ class BaseModel(nn.Module):
             self.property_heads = nn.ModuleList()
             for head in heads:
                 self.property_heads.append(head)
+        if self.task == 'reaction' or self.task == 'multi':
+            reaction_classes = [384]
+        else:
+            reaction_classes = []
+        if len(reaction_classes) > 0:
+            heads = [nn.Sequential(
+                DenseLayer(sdim, sdim, activation=nn.SiLU(), bias=True),
+                nn.Dropout(dropout),
+                DenseLayer(sdim, class_num, bias=True)
+            ) for class_num in reaction_classes]
+            self.reaction_heads = nn.ModuleList()
+            for head in heads:
+                self.reaction_heads.append(head)
+        
+        if self.task == 'fold' or self.task == 'multi':
+            fold_classes = [1195]
+            print("in fold")
+        else:
+            fold_classes = []
+        
+        if len(fold_classes) > 0:
+            print("fold heads")
+            heads = [nn.Sequential(
+                DenseLayer(sdim, sdim, activation=nn.SiLU(), bias=True),
+                nn.Dropout(dropout),
+                DenseLayer(sdim, class_num, bias=True)
+            ) for class_num in fold_classes]
+            self.fold_heads = nn.ModuleList()
+            for head in heads:
+                self.fold_heads.append(head)
         
         if self.model_type == "egnn_edge":
             # 辅助任务，预测距离
@@ -260,37 +239,45 @@ class BaseModel(nn.Module):
                 DenseLayer(sdim, 1, bias=True)
             )
         self.readout = readout
-        # print("Readout Strategy:", readout)
+        print("Readout Strategy:", readout)
         if readout == 'task_aware_attention':
-            self.affinity_prompts = nn.Parameter(torch.ones(1, len(self.affinity_heads), sdim))
-            self.property_prompts = nn.Parameter(torch.ones(1, len(self.property_heads), sdim))
-            self.global_readout = MultiLayerTAR(in_features=sdim, hidden_size=sdim, out_features=sdim, num_layers=1)
-            self.chain_readout = MultiLayerTAR(in_features=sdim, hidden_size=sdim, out_features=sdim, num_layers=1)
-            nn.init.kaiming_normal_(self.affinity_prompts)
-            nn.init.kaiming_normal_(self.property_prompts)
+            if self.task in ['lba', 'ppi', 'multi']:
+                self.global_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.affinity_heads))
+                self.affinity_prompts = nn.Parameter(torch.ones(len(self.affinity_heads), 1, sdim))
+            if self.task in ['ec', 'mf', 'bp', 'cc', 'go', 'multi']:
+                self.property_prompts = nn.Parameter(torch.ones(len(self.property_heads), 1, sdim))
+                self.chain_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.property_heads))
+            if self.task in ['reaction', 'multi']:
+                self.reaction_prompts = nn.Parameter(torch.ones(len(self.reaction_heads), 1, sdim))
+                self.chain_reaction_readout = TaskAwareReadout(in_features=sdim, hidden_size=sdim, out_features=sdim, tasks=len(self.reaction_heads))
             # print(self.affinity_prompts.shape)
             # print(self.property_prompts.shape)
         elif readout == 'weighted_feature':
-            # Different weights for different tasks
             self.affinity_weights = nn.Parameter(torch.ones(len(self.affinity_heads), 1, sdim))
             self.property_weights = nn.Parameter(torch.ones(len(self.property_heads), 1, sdim))
+            self.reaction_weights = nn.Parameter(torch.ones(len(self.reaction_heads), 1, sdim))
+            self.fold_weights = nn.Parameter(torch.ones(len(self.fold_heads), 1, sdim))
             nn.init.kaiming_normal_(self.affinity_weights)
             nn.init.kaiming_normal_(self.property_weights)
+            nn.init.kaiming_normal_(self.reaction_weights)
+            nn.init.kaiming_normal_(self.fold_weights)
         self.graph_pooling = graph_pooling
         self.apply(reset)
 
     def forward(self, data: Batch, subset_idx: Optional[Tensor] = None) -> Tensor:
-        s, pos, batch, channel_weights = data.x, data.pos, data.batch, data.channel_weights
+        s, pos, batch = data.x, data.pos, data.batch
         edge_index, d = data.edge_index, data.edge_weights
         lig_flag = data.lig_flag
         chains = data.chains
-        pos = pos.squeeze()
+        if self.task == 'fold' or self.task == 'multi':
+            domain_flag = data.domain_flag
+            domains = data.domains
         # print("Unique chains:", len(function_label), len(torch.unique(chains)))
         # # print("Atoms:", s.shape)
         # print("Protein shape:", s[(lig_flag!=0).squeeze()].shape)
         # print("Lig shape, chain shape:", lig_flag.shape, chains.shape)
         # external_flag = data.external_flag
-        if self.model_type not in ["gearnet", "hemenet"]:
+        if self.model_type != "gearnet":
             s = self.init_embedding(s)
         row, col = edge_index
         rel_pos = pos[row] - pos[col]
@@ -324,87 +311,81 @@ class BaseModel(nn.Module):
             e = self.post_lin_e(e)
         elif self.model_type == 'gearnet':
             graph = data
+            # print("edge_relations:",graph.edge_relations)            
             graph.edge_list = torch.cat([graph.edge_index.t(), graph.edge_relations.unsqueeze(-1)], dim=-1)
             # print("Graph Edge List:", graph.edge_list.shape)
             input_data = data.x
             s = self.gnn(graph, input_data)
             # print("Gearnet Output Shape:", s.shape)
             s = self.post_lin(s)
-        elif self.model_type == 'hemenet':
-            edge_list = torch.cat([data.edge_index.t(), data.edge_relations.unsqueeze(-1)], dim=-1) # [|E|, 3]
-            input_data = data.x
-            channel_attr = self.channel_attr(data.residue_elements.long())
-            s, coords = self.gnn(input_data, edge_list, pos, channel_attr, channel_weights, data.edge_weights)
         else:
             s = self.gnn(x=s, edge_index=edge_index, edge_attr=d, batch=batch)
             if self.use_norm:
                 s, _ = self.post_norm(x=(s, None), batch=batch)
             s = self.post_lin(s)
-            
-        # print(self.graph_level)
-        # print(self.readout)
+        # print("s:",s.shape)
+        # print("s lig squeeze: ",s[(lig_flag!=0).squeeze(), :].shape)
+        # print(torch.max(lig_flag))
+        # print("lig_flag", lig_flag.tolist())
+        # print("chains size", chains.shape)
+        # print("chains squeeze", chains.tolist())
+        # print("chains squeeze unique", torch.unique((chains-1).squeeze()))
+        # print("chains squeeze", (chains-1).squeeze().tolist())
+        # if self.task == 'fold' or self.task == 'multi':
+        #     print("s domain squeeze: ",s[(domain_flag!=0).squeeze(), :].shape)
+        #     print(torch.max(domain_flag))
+        #     print("domain_flag size", domain_flag.shape)
+        #     print("domains size", domains.shape)
+        #     print("domains squeeze", domains.tolist())
+        #     print("domains squeeze size", (domains-1).squeeze().shape)
+        #     print("domains squeeze unique", torch.unique((domains-1).squeeze()))
+        #     print("domains squeeze", (domains-1).squeeze().tolist())
         if self.graph_level:
+            # print("Graph Level")
+            # print("self.readout:", self.readout)
             if self.readout == 'vanilla':
-                # print("in")
+                # print("Vanilla")
+                # print("s:", s)
+                # print("s.shape:", s.shape)
+                # print("index:",batch)
+                # print("index.shape:", batch.shape)
                 y_pred = scatter(s, index=batch, dim=0, reduce=self.graph_pooling)
+                # print("y_pred:", y_pred)
+                # print("index:",batch)
+                # print("reduce:", self.graph_pooling)
                 # 将链从1编号改为从0编号
                 chain_pred = scatter(s[(lig_flag!=0).squeeze(), :], index=(chains-1).squeeze(), dim=0, reduce=self.graph_pooling)
+                if self.task == 'fold' or self.task == 'multi':
+                    domain_pred = scatter(s[(domain_flag!=0).squeeze(), :], index=(domains-1).squeeze(), dim=0, reduce=self.graph_pooling)
             elif self.readout == 'weighted_feature':
-                print('weighted feature')
-                # print("Shape:", self.task_weights.shape, s.shape)
+                
                 y_pred = scatter(s * self.affinity_weights, index=batch, dim=1, reduce=self.graph_pooling)
                 chain_pred = scatter(s[(lig_flag!=0).squeeze(), :] * self.property_weights, index=(chains-1).squeeze(), dim=1, reduce=self.graph_pooling)
-                # print("After", y_pred.shape, chain_pred.shape)
+                
+                # print("After",chain_pred.shape)
                 if self.task == 'multi':
                     affinity_pred = [affinity_head(y_pred[i].squeeze()) for i, affinity_head in enumerate(self.affinity_heads)]
                     property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
+                    # print(property_pred[4])
                     return affinity_pred, property_pred
-                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc', 'reaction', 'fold']:
-                    property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
-                    return property_pred
-                elif self.task in ['lba', 'ppi', 'affinity']:
-                    affinity_pred = [affinity_head(y_pred[i]) for i, affinity_head in enumerate(self.affinity_heads)]
-                    return affinity_pred
-                else:
-                    raise RuntimeError
-            elif self.readout == 'task_aware_attention':
-                global_index = batch
-                y_pred = self.global_readout(self.affinity_prompts, s, global_index)
-                chain_index = (chains-1).squeeze()
-                proteins = s[(lig_flag!=0).squeeze(), :]
-                # print("Shapes:", chain_index.shape, proteins.shape)
-                chain_pred = self.chain_readout(self.property_prompts, proteins, chain_index)
-                if self.task == 'multi':
-                    affinity_pred = [affinity_head(y_pred[i].squeeze()) for i, affinity_head in enumerate(self.affinity_heads)]
-                    property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
-                    return affinity_pred, property_pred
-                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc', 'reaction', 'fold']:
-                    property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
-                    return property_pred
-                elif self.task in ['lba', 'ppi', 'affinity']:
-                    affinity_pred = [affinity_head(y_pred[i]) for i, affinity_head in enumerate(self.affinity_heads)]
-                    return affinity_pred
-                else:
-                    raise RuntimeError
-            elif self.readout == 'task_aware_attention':
-                global_index = batch
-                y_pred = self.global_readout(self.affinity_prompts, s, global_index)
-                chain_index = (chains-1).squeeze()
-                proteins = s[(lig_flag!=0).squeeze(), :]
-                # print("Shapes:", chain_index.shape, proteins.shape)
-                chain_pred = self.chain_readout(self.property_prompts, proteins, chain_index)
-                if self.task == 'multi':
-                    affinity_pred = [affinity_head(y_pred[i].squeeze()) for i, affinity_head in enumerate(self.affinity_heads)]
-                    property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
-                    return affinity_pred, property_pred
-                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
+                elif self.task in ['ec', 'go', 'mf', 'bp', 'cc','reaction']:
                     property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in enumerate(self.property_heads)]
                     return property_pred
                 elif self.task in ['lba', 'ppi']:
                     affinity_pred = [affinity_head(y_pred[i]) for i, affinity_head in enumerate(self.affinity_heads)]
+                    print("affinity_pred:", affinity_pred)
                     return affinity_pred
                 else:
                     raise RuntimeError
+            # TODO: Implement task aware attention 
+            elif self.readout == 'taskaware_attention':
+                print("here")
+                y_pred = None
+                chain_pred = None
+            # else:
+            #     print("self.readout:",self.readout)
+            print("y_pred", y_pred.shape)
+            # print("chain_pred", chain_pred.shape)
             if self.model_type == "egnn_edge":
                 edge_batch = batch[edge_index[0]]
                 # e_external = e[external_flag==1]
@@ -414,22 +395,38 @@ class BaseModel(nn.Module):
                 # print("E flags:", external_flag.shape)
                 y_pred = torch.cat([y_pred, e_pool], dim=-1)
         else:
+    
             y_pred = s
-
         if subset_idx is not None:
+            # print("subset_idx:", subset_idx)
             y_pred = y_pred[subset_idx]
+        # print("y_pred:", y_pred)
         # print('Datatype:', data.type)
-        # print(y_pred)
+        # print("self.task:", self.task)
         if self.task == 'multi':
             affinity_pred = [affinity_head(y_pred) for affinity_head in self.affinity_heads]
             property_pred = [property_head(chain_pred) for property_head in self.property_heads]
-            return affinity_pred, property_pred
-        elif self.task in ['ec', 'go', 'mf', 'bp', 'cc', 'reaction', 'fold']:
+            reaction_pred = [reaction_head(chain_pred) for reaction_head in self.reaction_heads]
+            return affinity_pred, property_pred, reaction_pred
+        elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
             property_pred = [property_head(chain_pred) for property_head in self.property_heads]
+            # print("property pred:",property_pred)
+            # print("property pred shape:",property_pred.shape)
             return property_pred
-        elif self.task in ['lba', 'ppi', 'affinity']:
+        elif self.task in ['lba', 'ppi']:
             affinity_pred = [affinity_head(y_pred) for affinity_head in self.affinity_heads]
+            # print("affinity_pred:", affinity_pred)
             return affinity_pred
+        elif self.task in ['reaction']:
+            print("chain_pred shape", chain_pred.shape)
+            reaction_pred = [reaction_head(chain_pred) for reaction_head in self.reaction_heads]
+            # print("property pred:",property_pred)
+            # print("property pred shape:",property_pred.shape)
+            return reaction_pred
+        elif self.task in ['fold']:
+            print("domain_pred size", domain_pred.shape)
+            fold_pred = [fold_head(domain_pred) for fold_head in self.fold_heads]
+            return fold_pred
         else:
             raise RuntimeError
         

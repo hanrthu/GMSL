@@ -10,13 +10,13 @@ import json
 import pandas as pd
 from Bio.PDB import PDBParser
 class PDBWebParser(object):
-    def __init__(self, root_dir: str = '../data/MultiTask'):
+    def __init__(self, root_dir: str = './data/MultiTask'):
         super(PDBWebParser, self).__init__()
         self.root_dir = root_dir    
-        self.ec_root = '../data/EC/all'
-        self.go_root = '../data/GeneOntology/all'
-        self.lba_root = '../data/PDBbind/refined-set'
-        self.pp_root = '../data/PDBbind/PP'
+        self.ec_root = './datasets/EnzymeCommission/all'
+        self.go_root = './datasets/GeneOntology/all'
+        self.lba_root = './datasets/PDBbind/refined-set'
+        self.pp_root = './datasets/PDBbind/PP'
         self.ec_files = os.listdir(self.ec_root)
         self.go_files = os.listdir(self.go_root)
         self.lba_files = os.listdir(self.lba_root)
@@ -91,13 +91,13 @@ class PDBWebParser(object):
         return uniprot_dict
 
 if __name__ == '__main__':
-    with open('../datasets/MultiTask/train_all.txt', 'r') as f:
+    with open('./datasets/MultiTask/train_all.txt', 'r') as f:
         train_pdbs = f.readlines()
         train_pdbs = [i.strip() for i in train_pdbs]
-    with open('../datasets/MultiTask/val.txt', 'r') as f:
+    with open('./datasets/MultiTask/val.txt', 'r') as f:
         val_pdbs = f.readlines()
         val_pdbs = [i.strip() for i in val_pdbs]
-    with open('../datasets/MultiTask/test.txt', 'r') as f:
+    with open('./datasets/MultiTask/test.txt', 'r') as f:
         test_pdbs = f.readlines()
         test_pdbs = [i.strip() for i in test_pdbs]
         
@@ -105,8 +105,8 @@ if __name__ == '__main__':
     query_url = 'http://www.rcsb.org/structure/'
     parser = PDBWebParser()
     uniprot_dict = parser.get_uniprots(query_url, pdb_ids)
-    if not os.path.exists('../output_info/uniprot_dict_all.json'):
-        with open('../output_info/uniprot_dict_all.json', 'w') as f:
+    if not os.path.exists('./output_info/uniprot_dict_all.json'):
+        with open('./output_info/uniprot_dict_all.json', 'w') as f:
             json.dump(uniprot_dict, f)
     else:
         print("Uniprot dict already exists, skip saving...")

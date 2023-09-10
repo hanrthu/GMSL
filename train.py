@@ -1,5 +1,6 @@
 
 import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
 import json
 import time
 import yaml
@@ -22,7 +23,7 @@ from pytorch_lightning.callbacks import (
     ModelCheckpoint,
     ModelSummary
 )
-from utils.task_models import MultiTaskModel, PropertyModel, AffinityModel
+from utils.task_models import MultiTaskModel, PropertyModel, AffinityModel, ReactionModel, FoldModel
 from torch_geometric.loader import DataLoader
 
 from utils.multitask_data import CustomMultiTaskDataset
@@ -43,11 +44,10 @@ if not osp.exists(MODEL_DIR):
 # PPI添加方案2：在训练时，先训完一个任务的所有batch，再训练另一个任务的batch. Done
 
 class CustomBatchSampler(Sampler[List[int]]):
-    
     def __init__(self, batch_size_main: int = 64, batch_size_aux: int = 4, data_source = None, sample_strategy: int = 0, drop_last: bool = False) -> None:
         """
             sample_strategy: 0 means sampling main task first then sample the aux task.
-                             1 means sampling random batches from either the main task or the aux task.
+                             1 means sampling random batches from eicther the main task or the aux task.
         """
         super().__init__(data_source)
         self.data_source = data_source
@@ -146,10 +146,10 @@ class LBADataLightning(pl.LightningDataModule):
         batch_size: int = 128,
         num_workers: int = 4,
         train_task: str = 'multi',
-        train_split: str = 'train_ec',
+        train_split: str = 'train_all',
         val_split: str = 'val',
         test_split: str = 'test',
-        hetero = False,
+        gearnet = False,
         alpha_only = False,
     ):
         super(LBADataLightning, self).__init__()
@@ -161,7 +161,7 @@ class LBADataLightning(pl.LightningDataModule):
         self.train_split = train_split
         self.val_split = val_split
         self.test_split = test_split
-        self.hetero = hetero
+        self.gearnet = gearnet
         self.alpha_only = alpha_only
     @property
     def num_features(self) -> int:
@@ -172,36 +172,13 @@ class LBADataLightning(pl.LightningDataModule):
         return 1
 
     def prepare_data(self):
-        r_d = './datasets/MultiTask'
-        info_dict = './output_info/uniprot_dict_all_reaction.json'
-        if self.train_task == 'go':
-            r_d = './datasets/MultiTask_go'
-        elif self.train_task == 'fold':
-            print("fold task")
-            r_d = './datasets/MultiTask_new'
-            info_dict = './output_info/uniprot_dict_all_fold.json'
-        elif self.train_task == 'reaction' or self.train_task == 'multi':
-            print("reaction task")
-            r_d = './datasets/MultiTaskNew'
-        _ = CustomMultiTaskDataset(split='train', task=self.train_task, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
+        _ = CustomMultiTaskDataset(split='train', task=self.train_task)
         return None
 
     def setup(self, stage: Optional[str] = None):
-        print("train task: ", self.train_task)
-        r_d = './datasets/MultiTask'
-        info_dict = './output_info/uniprot_dict_all_reaction.json'
-        if self.train_task == 'go':
-            r_d = './datasets/MultiTask_go'
-        elif self.train_task == 'fold':
-            print("fold task")
-            r_d = './datasets/MultiTask_new'
-            info_dict = './output_info/uniprot_dict_all_fold.json'
-        elif self.train_task == 'reaction' or self.train_task == 'multi':
-            print("reaction task")
-            r_d = './datasets/MultiTaskNew'
-        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
-        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
-        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, hetero=self.hetero, alpha_only=self.alpha_only, root_dir = r_d, label_dir = r_d + '/uniformed_labels.json', info_dict = info_dict)
+        self.train_dataset = CustomMultiTaskDataset(split=self.train_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
+        self.val_dataset = CustomMultiTaskDataset(split=self.val_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
+        self.test_dataset = CustomMultiTaskDataset(split=self.test_split, task=self.train_task, gearnet=self.gearnet, alpha_only=self.alpha_only)
 
     def train_dataloader(self, shuffle: bool = False):
         # if self.auxiliary != None:
@@ -251,17 +228,20 @@ def choose_monitor(task):
     if task == 'multi':
         monitor = 'val_loss'
         mode = 'min'
-    elif task in ['affinity', 'lba', 'ppi']:
+    elif task in ['ppi','lba']:
         monitor = 'val_loss'
         mode = 'min'
-    elif task in ['bp', 'mf', 'cc', 'go', 'ec', 'reaction', 'fold']:
+    elif task in ['bp', 'mf', 'cc', 'go', 'ec']:
         monitor = 'val_fmax_all'
+        mode = 'max'
+    elif task in ['reaction', 'fold']:
+        monitor = 'val_acc_all'
         mode = 'max'
     return monitor, mode
 
 def get_argparse():
     parser = ArgumentParser(
-        description="Main training script for Equivariant GNNs on Multitask Data."
+        description="Main training script for Equivariant GNNs on LBA Data."
     )
     # Training Setting
     # parser.add_argument("--batch_size", type=int, default=16)
@@ -326,6 +306,11 @@ if __name__ == "__main__":
     torch.set_float32_matmul_precision('high')
     args = get_argparse()
     device = args.device
+    # if device != "cpu":
+    #     if ',' not in device:
+    #         device = [int(device)]
+    #     else:
+    #         device = [int(i) for i in device.split(',')]
     if args.wandb:
         name = args.run_name + time.strftime("%Y-%m-%d-%H-%M-%S")
         wandb.init(project='gmsl', name=name)
@@ -334,8 +319,28 @@ if __name__ == "__main__":
         wandb_logger = None
 
     if args.train_task == 'multi':
+        model = MultiTaskModel(
+            args=args,
+            sdim=args.sdim,
+            vdim=args.vdim,
+            depth=args.depth,
+            model_type=args.model_type,
+            learning_rate=args.learning_rate,
+            weight_decay=args.weight_decay,
+            r_cutoff=4.5,
+            num_radial=args.num_radial,
+            max_epochs=args.max_epochs,
+            factor_scheduler=0.75,
+            enhanced=args.enhanced,
+            offset_strategy = args.offset_strategy,
+            task=args.train_task,
+            readout=args.readout
+        )
+        print(
+            f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
+        )
         model_cls = MultiTaskModel
-    elif args.train_task in ['ec', 'go', 'mf', 'bp', 'cc', 'reaction', 'fold']:
+    elif args.train_task in ['ec', 'go', 'mf', 'bp', 'cc']:
         model = PropertyModel(
             args=args,
             sdim=args.sdim,
@@ -350,13 +355,58 @@ if __name__ == "__main__":
             factor_scheduler=0.75,
             enhanced=args.enhanced,
             offset_strategy = args.offset_strategy,
-            task=args.train_task
+            task=args.train_task,
+            # readout=args.readout
         )
         model_cls = PropertyModel
         print(
             f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
         )
-    elif args.train_task in ['affinity', 'lba', 'ppi']:
+    elif args.train_task in ['reaction']:
+        model = ReactionModel(
+            args=args,
+            sdim=args.sdim,
+            vdim=args.vdim,
+            depth=args.depth,
+            model_type=args.model_type,
+            learning_rate=args.learning_rate,
+            weight_decay=args.weight_decay,
+            r_cutoff=4.5,
+            num_radial=args.num_radial,
+            max_epochs=args.max_epochs,
+            factor_scheduler=0.75,
+            enhanced=args.enhanced,
+            offset_strategy = args.offset_strategy,
+            task=args.train_task,
+            # readout=args.readout
+        )
+        model_cls = ReactionModel
+        print(
+            f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
+        )
+    elif args.train_task in ['fold']:
+        model = FoldModel(
+            args=args,
+            sdim=args.sdim,
+            vdim=args.vdim,
+            depth=args.depth,
+            model_type=args.model_type,
+            learning_rate=args.learning_rate,
+            weight_decay=args.weight_decay,
+            r_cutoff=4.5,
+            num_radial=args.num_radial,
+            max_epochs=args.max_epochs,
+            factor_scheduler=0.75,
+            enhanced=args.enhanced,
+            offset_strategy = args.offset_strategy,
+            task=args.train_task,
+            # readout=args.readout
+        )
+        model_cls = FoldModel
+        print(
+            f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
+        )
+    elif args.train_task == 'lba' or 'ppi':
         model = AffinityModel(
             args=args,
             sdim=args.sdim,
@@ -374,6 +424,9 @@ if __name__ == "__main__":
             task=args.train_task
         )
         model_cls = AffinityModel
+        print(
+            f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
+        )
         
     model_dir = osp.join(MODEL_DIR, args.save_dir)
     if not osp.exists(model_dir):
@@ -394,10 +447,11 @@ if __name__ == "__main__":
             train_split=args.train_split,
             val_split=args.val_split,
             test_split=args.test_split,
-            hetero=True if (args.model_type=='gearnet' or args.model_type=='hemenet') else False,
+            gearnet=True if args.model_type=='gearnet' else False,
             alpha_only=args.alpha_only
             # auxiliary=None
         )
+        print("model_cls:",model_cls)
         model = model_cls(
             args=args,
             sdim=args.sdim,
@@ -415,11 +469,7 @@ if __name__ == "__main__":
             enhanced=args.enhanced,
             offset_strategy = args.offset_strategy,
             task=args.train_task,
-            # readout=args.readout
-        )
-    
-        print(
-            f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
+            readout=args.readout
         )
         # 根据不同任务设置选择最优模型的方法
         monitor, mode = choose_monitor(args.train_task)

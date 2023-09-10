@@ -10,9 +10,9 @@ num_radial: 32
 learning_rate: 1.0e-4
 batch_accum_grad: 1
 weight_decay: 0
-max_epochs: 50
+max_epochs: 10
 enhanced: False
-readout: task_aware_attention
+readout: vanilla
 # 这些都是EQGAT需要的参数，之后优化掉
 cross_ablate: False
 no_feat_attn: False
@@ -20,8 +20,8 @@ no_feat_attn: False
 #Dataset Settings
 drop_last: False
 run_name: gearnet
-train_task: reaction
-train_split: train_all
+train_task: fold
+train_split: train
 val_split: val
 test_split: test
 alpha_only: True
@@ -31,7 +31,7 @@ num_workers: 4
 # Trainer Settings
 device: 
   - 1
-nruns: 2
+nruns: 1
 wandb: False
 save_dir: gearnet
 gradient_clip_val: 10
