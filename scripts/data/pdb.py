@@ -1,7 +1,7 @@
 import gzip
 from io import BytesIO
 from pathlib import Path
-from zipfile import ZipFile
+from zipfile import ZipFile, BadZipFile
 
 import cytoolz
 import httpx
@@ -13,21 +13,29 @@ save_dir = Path('datasets') / 'pdb'
 
 def download_batch(pdb_ids: list[str]):
     while True:
-        r = httpx.get('https://download.rcsb.org/batch/structures/' + ':'.join(map(lambda x: f'{x}.pdb', pdb_ids)))
-        with ZipFile(BytesIO(r.content)) as zipf:
-            try:
-                for filename in zipf.namelist():
-                    (save_dir / filename).with_suffix('').write_bytes(gzip.decompress(zipf.read(filename)))
-            except EOFError:
-                continue
+        try:
+            r = httpx.get('https://download.rcsb.org/batch/structures/' + ':'.join(map(lambda x: f'{x}.pdb', pdb_ids)))
+        except httpx.TransportError:
+            continue
+        try:
+            zipf = ZipFile(BytesIO(r.content))
+        except BadZipFile:
+            continue
+        try:
+            for filename in zipf.namelist():
+                (save_dir / filename).with_suffix('').write_bytes(gzip.decompress(zipf.read(filename)))
+        except BadZipFile:
+            continue
         break
 
 def main():
     batch_size = 10
     save_dir.mkdir(exist_ok=True)
+    pdb_ids = set(get_pdb_ids(save_path=Path('datasets') / 'pdb_ids.txt'))
+    pdb_ids -= set(path.stem.upper() for path in save_dir.iterdir())
     process_map(
         download_batch,
-        list(cytoolz.partition_all(batch_size, get_pdb_ids(save_path=Path('datasets') / 'pdb_ids.txt'))),
+        list(cytoolz.partition_all(batch_size, pdb_ids)),
         ncols=80, max_workers=8, chunksize=1,
     )
 
