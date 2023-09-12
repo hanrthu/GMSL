@@ -1,3 +1,4 @@
+from functools import cache
 import itertools as it
 from pathlib import Path
 
@@ -29,5 +30,6 @@ def get_pdb_ids(save_path: Path | None = None) -> list[str]:
         save_path.write_text('\n'.join(ret))
     return ret
 
+@cache
 def get_uniprot_table() -> pd.Series:
     return pd.read_csv(uniprot_table_path, index_col=['pdb_id', 'chain'])['uniprot']
