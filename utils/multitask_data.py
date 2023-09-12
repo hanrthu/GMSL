@@ -221,7 +221,7 @@ class CustomMultiTaskDataset(Dataset):
             if self.alpha_only:
                 print("Only retaining Alpha Carbon atoms for the atom_df")
                 self.retain_alpha_carbon()
-            self.transform_cmplx()
+            # self.transform_cmplx()
             print("Loading Graph Cache...")
             # with open(self.graph_cache_dir, 'rb') as f:
             #     self.processed_complexes = torch.load(f)
@@ -253,13 +253,13 @@ class CustomMultiTaskDataset(Dataset):
         print("End Transforming: ", start / 56, " ,Total time: ", end-start)
         return transformed
 
-    def transform_cmplx(self):
-        print("Transforming complexes...")
-        process_map(
-            _apply_cuda,
-            it.repeat(self.transform_func), self.processed_complexes, it.cycle(range(torch.cuda.device_count())),
-            max_workers=4, ncols=80, total=len(self.processed_complexes), chunksize=1,
-        )
+    # def transform_cmplx(self):
+    #     print("Transforming complexes...")
+    #     process_map(
+    #         _apply_cuda,
+    #         it.repeat(self.transform_func), self.processed_complexes, it.cycle(range(torch.cuda.device_count())),
+    #         max_workers=4, ncols=80, total=len(self.processed_complexes), chunksize=1,
+    #     )
         # for i, (x, cuda_id) in enumerate(zip(tqdm(self.processed_complexes), it.cycle(range(torch.cuda.device_count())))):
         #     self.processed_complexes[i] = self._apply_cuda(x, cuda_id)
         # with multiprocessing.Pool(processes = cores) as pool:

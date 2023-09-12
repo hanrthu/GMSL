@@ -26,7 +26,17 @@ supernode: bool = False
 alpha_only: bool
 max_seq_len: int = 3000
 
-def process(item: dict, device: Device):
+def retain_alpha_carbon(item):
+    protein_df = item['atoms_protein']
+    # print("Original Nodes:", len(protein_df))
+    new_protein_df = protein_df[protein_df.name == 'CA'].reset_index(drop=True)
+    item['atoms_protein'] = new_protein_df
+    # print("Retaining Alpha Carbons:", len(new_protein_df))
+    return item
+
+def process(item: dict, device: Device, alpha_only=False):
+    if alpha_only:
+        item = retain_alpha_carbon(item)
     ligand_df: pd.DataFrame | None = item['atoms_ligand']
     protein_df: pd.DataFrame = item['atoms_protein']
     residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
@@ -147,28 +157,6 @@ def process(item: dict, device: Device):
     graph.type = 'multi'
     return graph
 
-# class GNNTransformMultiTask:
-#     def __init__(
-#         self,
-#         cutoff: float = 4.5,
-#         remove_hydrogen: bool = True,
-#         max_num_neighbors: int = 32,
-#         supernode: bool = False,
-#         offset_strategy: int = 0,
-#         hetero=False,
-#         alpha_only=False
-#     ):
-#         self.cutoff = cutoff
-#         remove_hydrogen = remove_hydrogen
-#         self.max_num_neighbors = max_num_neighbors
-#         self.supernode = supernode
-#         self.offset_strategy = offset_strategy
-#         hetero = hetero
-#         self.alpha_only = alpha_only
-#
-#     def __call__(self, item: dict, device: Device) -> MyData:
-
-
 # almost copy & paste from tqdm
 @contextmanager
 def ensure_lock(tqdm_class, lock_name=''):
@@ -255,37 +243,52 @@ def main():
     print('start method:', torch.multiprocessing.get_start_method())
     print('sharing strategy:', torch.multiprocessing.get_sharing_strategy())
     args = get_argparse()
-    hetero = args.model_type in ['gearnet', 'hemenet']
+    hetero = args.model_args['model_type'] in ['gearnet', 'hemenet']
     assert hetero
     alpha_only = args.alpha_only
+
     # seed = args.seed
     # pl.seed_everything(seed, workers=True)
     # cache_dir = os.path.join(self.root_dir, self.cache_dir)
-    train_cache_path = Path('datasets/MultiTask/train_all.cache')
-    print('Start loading cached Multitask files...')
-    with open(train_cache_path, 'rb') as f:
-        processed_complexes = pickle.load(f)
-    print('Complexes Before Checking:', len(processed_complexes))
-    print('Checking the dataset...')
-    thres = 3000
-    processed_complexes = [
-        i for i in tqdm(processed_complexes)
-        if length_check(i, thres) and correctness_check(i)
-    ]
-    print('Dataset size:', len(processed_complexes))
-    # transform_func = GNNTransformMultiTask(hetero=hetero, alpha_only=args.alpha_only)
-    print('Transforming complexes...')
-    # for i in trange(len(processed_complexes), ncols=80):
-    #     processed_complexes[i] = transform_func(processed_complexes[i], 0)
-    num_gpus = torch.cuda.device_count()
-    # import resource
-    # rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-    # resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
-    processed_complexes = process_map(
-        process,
-        processed_complexes, it.cycle(range(num_gpus)),
-        max_workers=12, ncols=80, total=len(processed_complexes), chunksize=16,
-    )
+    splits = [args.train_split, args.val_split, args.test_split]
+    train_cache_paths = []
+    output_roots = []
+    for split in splits:
+        train_cache_path = Path(f'./datasets/MultiTask_Resplit/{split}.cache')
+        output_root = Path(args.graph_cache_dir + f'_{split}')
+        train_cache_paths.append(train_cache_path)
+        output_roots.append(output_root)
+    threses = [3000, 15000, 15000]
+    for i, _ in enumerate(splits):
+        train_cache_path = train_cache_paths[i]
+        output_root = output_roots[i]
+        thres = threses[i]
+        print('Start loading cached Multitask files...')
+        with open(train_cache_path, 'rb') as f:
+            processed_complexes = pickle.load(f)
+        print('Complexes Before Checking:', len(processed_complexes))
+        print('Checking the dataset...')
 
+        processed_complexes = [
+            i for i in tqdm(processed_complexes)
+            if length_check(i, thres) and correctness_check(i)
+        ]
+        print('Dataset size:', len(processed_complexes))
+        # transform_func = GNNTransformMultiTask(hetero=hetero, alpha_only=args.alpha_only)
+        print('Transforming complexes...')
+        # for i in trange(len(processed_complexes), ncols=80):
+        #     processed_complexes[i] = transform_func(processed_complexes[i], 0)
+        num_gpus = torch.cuda.device_count()
+        # import resource
+        # rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+        # resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
+        processed_complexes = process_map(
+            process,
+            processed_complexes, it.cycle(range(num_gpus)), it.cycle([alpha_only]),
+            max_workers=2, ncols=80, total=len(processed_complexes), chunksize=16,
+        )
+        os.makedirs(output_root, exist_ok=True)
+        for item in tqdm(processed_complexes):
+            torch.save(item.cpu(), output_root/(item['prot_id'] + '.pt'))
 if __name__ == '__main__':
     main()

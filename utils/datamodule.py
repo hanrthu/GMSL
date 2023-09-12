@@ -44,7 +44,7 @@ class GMSLDataModule(pl.LightningDataModule):
             self.device = torch.device(local_rank)
 
     def setup(self, stage: Optional[str] = None):
-        print("hellp")
+        print("hello")
         self.train_dataset = LiteMultiTaskDataset(graph_cache_dir=self.cache_dir, split=self.train_split)
         self.lba_indices, self.ppi_indices, self.property_indices= self.gen_data_indices(self.train_dataset.complexes)
         self.val_dataset = LiteMultiTaskDataset(graph_cache_dir=self.cache_dir, split=self.val_split)

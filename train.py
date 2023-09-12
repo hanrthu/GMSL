@@ -159,7 +159,7 @@ def get_argparse():
         config_dict = {}
     for k, v in config_dict.items():
         setattr(args, k, v)
-    print("Config Dict:", args)
+    # print("Config Dict:", args)
     return args
 
 def init_pytorch_settings(args):

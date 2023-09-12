@@ -65,6 +65,7 @@ class BaseModel(nn.Module):
         self.init_embedding = nn.Embedding(num_embeddings=NUM_ELEMENTS, embedding_dim=embedding_dim)
         # 14 is the n_channel size
         self.channel_attr = nn.Embedding(num_embeddings=MAX_CHANNEL, embedding_dim=sdim) if self.model_type == 'hemenet' else None
+        self.edge_attr = nn.Embedding(num_embeddings=kwargs['num_relation'], embedding_dim=sdim) if self.model_type=='hemenet' else None
         gnn_cls = register[self.model_type]
 
         argspec = inspect.getfullargspec(gnn_cls.__init__)
@@ -96,7 +97,7 @@ class BaseModel(nn.Module):
         elif self.model_type == 'hemenet':
             self.post_norm = None
             self.post_lin = None
-            self.coord_lin = DenseLayer(MAX_CHANNEL*MAX_CHANNEL , sdim, bias=False)
+            # self.coord_lin = DenseLayer(MAX_CHANNEL*MAX_CHANNEL , sdim, bias=False)
         else:
             if self.use_norm:
                 self.post_norm = LayerNorm(dims=(sdim, vdim))
@@ -143,7 +144,7 @@ class BaseModel(nn.Module):
         self.graph_pooling = graph_pooling
         self.apply(reset)
 
-    def forward(self, data: Batch) -> Tensor:
+    def forward(self, data: Batch):
         s, pos, batch, channel_weights = data.x, data.pos, data.batch, data.channel_weights
         edge_index, d, lig_flag, chains = data.edge_index, data.edge_weights, data.lig_flag, data.chains
         pos = pos.squeeze()
@@ -154,7 +155,7 @@ class BaseModel(nn.Module):
         rel_pos = pos[row] - pos[col]
         rel_pos = F.normalize(rel_pos, dim=-1, eps=1e-6)
         edge_attr = d, rel_pos
-        
+        coords = None
         if self.model_type in ["painn", "eqgat"]:
             v = torch.zeros(size=[s.size(0), 3, self.vdim], device=s.device)
             s, v = self.gnn((s, v), edge_index=edge_index, edge_attr=edge_attr, batch=batch)
@@ -174,9 +175,10 @@ class BaseModel(nn.Module):
         elif self.model_type == 'hemenet':
             edge_list = torch.cat([data.edge_index.t(), data.edge_relations.unsqueeze(-1)], dim=-1) # [|E|, 3]
             channel_attr = self.channel_attr(data.residue_elements.long())
-            s, coords = self.gnn(s, edge_list, pos, channel_attr, channel_weights, data.edge_weights)
-            dist_info = torch.norm(coords[:, :, None] - coords[:, None, :], dim=-1, keepdim=False).view(coords.shape[0], -1)
-            s = s + self.coord_lin(dist_info)
+            edge_attr = self.edge_attr(data.edge_relations.long())
+            s, coords = self.gnn(s, edge_list, pos, channel_attr, channel_weights, data.edge_weights, edge_attr)
+            # dist_info = torch.norm(coords[:, :, None] - coords[:, None, :], dim=-1, keepdim=False).view(coords.shape[0], -1)
+            # s = s + self.coord_lin(dist_info)
         else:
             s = self.gnn(x=s, edge_index=edge_index, edge_attr=d, batch=batch)
             if self.use_norm:
@@ -195,19 +197,30 @@ class BaseModel(nn.Module):
             y_pred = self.global_readout(self.affinity_prompts, s, global_index)
             proteins = s[(lig_flag!=0).squeeze(), :]
             chain_pred = self.chain_readout(self.property_prompts, proteins, (chains-1).squeeze())
+        else:
+            raise NotImplementedError
 
         if self.task == 'multi':
             affinity_pred = [affinity_head(y_pred[i].squeeze()) for i, affinity_head in enumerate(self.affinity_heads)]
             property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in
                              enumerate(self.property_heads)]
-            return affinity_pred, property_pred
+            if coords is not None:
+                return affinity_pred, property_pred, coords
+            else:
+                return affinity_pred, property_pred, None
         elif self.task in ['ec', 'go', 'mf', 'bp', 'cc']:
             property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in
                              enumerate(self.property_heads)]
-            return property_pred
+            if coords is not None:
+                return property_pred, coords
+            else:
+                return property_pred, None
         elif self.task in ['lba', 'ppi']:
             affinity_pred = [affinity_head(y_pred[i]) for i, affinity_head in enumerate(self.affinity_heads)]
-            return affinity_pred
+            if coords is not None:
+                return affinity_pred, coords
+            else:
+                return affinity_pred, None
         else:
             raise RuntimeError
 

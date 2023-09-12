@@ -23,7 +23,7 @@ model_args:
     - 512
     - 512
   embedding_dim: 512
-  num_relation: 7
+  num_relation: 6
   channel_dim: 14
   factor_scheduler: 0.75
   layer_norm: True
@@ -40,14 +40,14 @@ test_split: test
 alpha_only: False
 offset_strategy: 1
 num_workers: 4
-graph_cache_dir: ./datasets/MultiTask/processed_graphs/hetero_fullatom_knn5_spatial4.5_sequential2
+graph_cache_dir: ./datasets/MultiTask/graphs_new/hetero_fullatom_knn5_spatial4.5_sequential2
 
 # Trainer Settings
 device:
   # - 2
   - 1
 nruns: 3
-wandb: True
+wandb: False
 save_dir: hemenet
 gradient_clip_val: 10
 load_ckpt: null

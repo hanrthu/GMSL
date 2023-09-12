@@ -150,12 +150,11 @@ class MultiTaskModel(pl.LightningModule):
         f_max = torch.max(fs, dim=0)[0]
         return f_max.item()
             
-    def forward(self, data: Batch) -> Tuple[Tensor, Tensor]:
-        y_affinity_pred, y_property_pred = self.model(data=data)[0], self.model(data=data)[1]
-        return y_affinity_pred, y_property_pred
+    def forward(self, data: Batch) -> Tuple[Tensor, Tensor, Tensor|None]:
+        y_affinity_pred, y_property_pred, coords = self.model(data=data)
+        return y_affinity_pred, y_property_pred, coords
 
-    def align_pred_and_gt(self, y_affinity_pred, y_property_pred, y_affinity_true, y_affinity_mask,
-        y_property_true, y_property_mask):
+    def align_pred_and_gt(self, y_affinity_pred, y_property_pred, y_affinity_true, y_property_true, y_property_mask):
         # Predict Affinities
         y_affinity_preds = []
         y_affinity_trues = []
@@ -164,7 +163,7 @@ class MultiTaskModel(pl.LightningModule):
             # print(y_affinity_true.shape)
             # print(y_affinity_true[:, j].shape)
             curr_true = y_affinity_true[:, j].view(-1, )
-            curr_mask = y_affinity_mask[:, j].view(-1, )
+            curr_mask = curr_true != -1
             # print("Affinity Before:", affinity_name, curr_pred.shape, curr_true.shape, curr_mask.shape)
             curr_pred = curr_pred[curr_mask == 1]
             curr_true = curr_true[curr_mask == 1]
@@ -206,13 +205,12 @@ class MultiTaskModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         a = self.trainer.global_rank
-        y_a_pred, y_p_pred = self(batch)
+        y_a_pred, y_p_pred, coords = self(batch)
         y_affinity_true = batch.affinities
-        y_affinity_mask = batch.affinity_mask
         y_property_true = batch.functions
         y_property_mask = batch.valid_masks
         y_affinity_preds, y_property_preds, y_affinity_trues, y_property_trues = self.align_pred_and_gt(y_a_pred, y_p_pred, y_affinity_true,
-                                                                                                        y_affinity_mask, y_property_true, y_property_mask)
+                                                                                                        y_property_true, y_property_mask)
         bce_losses = 0
         l2_losses = 0
         # This output contains bce and l2 loss for each category as well as in total.
@@ -248,23 +246,25 @@ class MultiTaskModel(pl.LightningModule):
                 l2_losses += self.affinity_alphas[i] * l2_loss
         if not bce_losses == 0 and not l2_losses == 0:
             # print("BCE Loss:", bce_loss, "L2 Loss:", l2_loss)
-            loss = 10 * bce_losses + l2_losses
+            loss = 2 * bce_losses + l2_losses
         elif not bce_losses == 0:
             # print("BCE Loss:", bce_loss)
-            loss = 10 * bce_losses
+            loss = 2 * bce_losses
         elif not l2_losses == 0:
             # print("L2 Loss:", l2_loss)
             loss = l2_losses
         else:
             print("Found a batch with no annotations!")
             raise RuntimeError
+        if coords is not None:
+            loss += (coords * 0).mean()
         training_step_output['loss'] = loss
         training_step_output['bce_total'] = bce_losses if bce_losses != 0 else -1
         training_step_output['l2_total'] = l2_losses if l2_losses != 0 else -1
-        if torch.isnan(loss):
-            print(bce_losses, l2_losses)
-            print(y_affinity_pred.shape, y_affinity_true.shape)
-            print(y_property_pred.shape, y_property_true.shape)
+        # if torch.isnan(loss):
+        #     print(bce_losses, l2_losses)
+        #     print(y_affinity_pred.shape, y_affinity_true.shape)
+        #     print(y_property_pred.shape, y_property_true.shape)
 
         self.log("train_loss", loss, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
         self.log("train_l2", l2_losses, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
@@ -276,13 +276,12 @@ class MultiTaskModel(pl.LightningModule):
         # if self.model_type == "egnn_edge":
         #     y_pred, y_true, _, _ = self(batch)
         # else:
-        y_affinity_pred, y_property_pred = self(batch)
+        y_affinity_pred, y_property_pred, _ = self(batch)
         y_affinity_true = batch.affinities
-        y_affinity_mask = batch.affinity_mask
         y_property_true = batch.functions
         y_property_mask = batch.valid_masks
         y_affinity_preds, y_property_preds, y_affinity_trues, y_property_trues = self.align_pred_and_gt(y_affinity_pred, y_property_pred, y_affinity_true,
-                                                                                                        y_affinity_mask, y_property_true, y_property_mask)
+                                                                                                        y_property_true, y_property_mask)
         for i, (affinity_name, affinity_num) in enumerate(self.affinity_info.items()):
             curr_pred = y_affinity_preds[i]
             curr_true = y_affinity_trues[i]
@@ -296,13 +295,12 @@ class MultiTaskModel(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         # if self.model_type == "egnn_edge":
         #     y_pred, y_true, _, _ = self(batch)
-        y_affinity_pred, y_property_pred = self(batch)
+        y_affinity_pred, y_property_pred, _ = self(batch)
         y_affinity_true = batch.affinities
-        y_affinity_mask = batch.affinity_mask
         y_property_true = batch.functions
         y_property_mask = batch.valid_masks
         y_affinity_preds, y_property_preds, y_affinity_trues, y_property_trues = self.align_pred_and_gt(y_affinity_pred, y_property_pred, y_affinity_true,
-                                                                                                        y_affinity_mask, y_property_true, y_property_mask)
+                                                                                                        y_property_true, y_property_mask)
         self.test_step_outputs.append({"affinity_true": y_affinity_trues,"affinity_pred": y_affinity_preds,"property_true": y_property_trues,"property_pred": y_property_preds})
 
     def on_train_epoch_end(self):
@@ -357,7 +355,7 @@ class MultiTaskModel(pl.LightningModule):
             # valid_res[log_bce] = round(bce_loss, 4)
             valid_res[log_fmax] = round(f_max, 4)
             
-        val_loss = l2_losses + 10 * bce_losses
+        val_loss = l2_losses + 2 * bce_losses
         valid_res['val_loss'] = val_loss
         valid_res['epoch'] = self.current_epoch
         print("VALID:", valid_res)

@@ -19,3 +19,4 @@ models/*
 lightning_logs/*
 .vscode/*
 notebooks/*
+try_load_data.py

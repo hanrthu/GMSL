@@ -192,10 +192,11 @@ class AM_EGCL(nn.Module):
         self.activation = activation
         self.radial_linear = nn.Linear(channel_nf ** 2, channel_nf)
         self.hetero_linear = nn.Linear(num_relation * hidden_dim, output_dim)
-        if edge_input_dim != 0:
-            self.edge_linear = nn.Linear(edge_input_dim, input_dim)
-        else:
-            self.edge_linear = None
+        # TODO: edge_linear加上看看效果
+        # if edge_input_dim != 0:
+        #     self.edge_linear = nn.Linear(edge_input_dim, input_dim)
+        # else:
+        #     self.edge_linear = None
         # MLP Phi_m for scalar message 
         self.message_mlp = nn.Sequential(
             nn.Linear(input_edge + channel_nf + edge_input_dim, hidden_dim),
@@ -209,6 +210,8 @@ class AM_EGCL(nn.Module):
                     nn.Sigmoid()
                 )
         self.dropout = nn.Dropout(dropout)
+        self.w_r = nn.Parameter(torch.ones((self.num_relation, 1)))
+        nn.init.kaiming_normal_(self.w_r)
         # MLP Phi_x for coordinate message
         layer = nn.Linear(hidden_dim, channel_dim, bias=False)
         torch.nn.init.xavier_uniform_(layer.weight, gain=0.001)
@@ -275,16 +278,17 @@ class AM_EGCL(nn.Module):
         # max_nodes = h.shape[0]
         node_s = h[source] 
         node_t = h[target]
-        if edge_attr:
+        if edge_attr is not None:
             node_message = self.message_mlp(torch.cat([node_t, node_s, radial, edge_attr], dim=-1))
         else:
             node_message = self.message_mlp(torch.cat([node_t, node_s, radial], dim=-1))
         node_message = self.dropout(node_message) # [|E|, hidden_dim]
         if self.attention:
             node_message = node_message * self.att_mlp(node_message)
-        if edge_attr is not None:
-            assert edge_attr.shape == node_message.shape
-            node_message += self.edge_linear(edge_attr)
+        # TODO: Experiment if this is necessary
+        # if edge_attr is not None:
+        #     assert edge_attr.shape[0] == node_message.shape[0]
+        #     node_message += self.edge_linear(edge_attr)
         # Calculate coordinate message xij
         n_channel = coords.shape[1]
         edge_feat = self.coord_mlp(node_message) # [|E|, n_channel]
@@ -321,15 +325,15 @@ class AM_EGCL(nn.Module):
         node_agg = update.view(num_nodes, self.num_relation * self.hidden_dim)
         # Calculate coordinate aggregation
         if self.coords_agg == 'sum':
-            coord_agg = unsorted_segment_sum(coord_message, target, num_segments=num_nodes)
+            coord_agg = unsorted_segment_sum(self.w_r[relation].unsqueeze(-1) * coord_message, target, num_segments=num_nodes)
         elif self.coords_agg == 'mean':
-            coord_agg = unsorted_segment_mean(coord_message, target, num_segments=num_nodes)
+            coord_agg = unsorted_segment_mean(self.w_r[relation].unsqueeze(-1) * coord_message, target, num_segments=num_nodes)
         else:
             raise Exception('Please choose the correct aggregation method!')
         
         return node_agg, coord_agg 
     
-    def combine(self, h, coords, node_agg, coord_agg):
+    def combine(self, h, coords, node_agg, coord_agg, relation):
         '''
             This is the heterogeneous graph message update function
             h: input feature, [N, input_dim]
@@ -359,13 +363,14 @@ class AM_EGCL(nn.Module):
             node_attr: [N, node_feature]
         '''
         num_nodes = h.shape[0]
+        relation = edge_list[:, 2]
         node_message, coord_message = self.message(h, edge_list, coords, channel_attr, channel_weights, edge_attr, node_attr)
         if torch.isnan(node_message).any() or torch.isnan(coord_message).any():
             print("Wrong output")
         node_agg, coord_agg = self.aggregate(node_message, coord_message, edge_list, edge_weights, num_nodes)
         if torch.isnan(node_agg).any() or torch.isnan(coord_agg).any():
             print("Wrong output")
-        node_output, coord_output = self.combine(h, coords, node_agg, coord_agg)
+        node_output, coord_output = self.combine(h, coords, node_agg, coord_agg, relation)
         if torch.isnan(node_output).any() or torch.isnan(coord_output).any():
             print("Wrong output")
         return node_output, coord_output

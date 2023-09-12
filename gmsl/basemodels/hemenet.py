@@ -38,7 +38,8 @@ class HemeNet(nn.Module):
         for i in range(len(self.dims) - 1):
             # note that these layers are from gearnet.layer instead of torchdrug.layers
             self.layers.append(layer.AM_EGCL(self.dims[i], self.dims[i + 1], self.dims[i+1], num_relation,
-                                            channel_dim, channel_nf, coords_agg, batch_norm=batch_norm, activation=activation))
+                                            channel_dim, channel_nf, coords_agg, batch_norm=batch_norm,
+                                            activation=activation, edge_input_dim=edge_input_dim))
             if use_ieconv:
                 self.ieconvs.append(layer.IEConvLayer(self.dims[i], self.dims[i] // 4, 
                                     self.dims[i+1], edge_input_dim=14, kernel_hidden_dim=32))

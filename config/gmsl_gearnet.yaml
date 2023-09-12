@@ -24,7 +24,7 @@ model_args:
     - 512
     - 512
   embedding_dim: 512
-  num_relation: 7
+  num_relation: 6
 
 #Dataset Settings
 batch_size: 32
@@ -37,7 +37,7 @@ test_split: test
 alpha_only: True
 offset_strategy: 1
 num_workers: 0
-graph_cache_dir: ./datasets/MultiTask/processed_graphs/hetero_alpha_only_knn5_spatial4.5_sequential2
+graph_cache_dir: ./datasets/MultiTask/graphs_new/hetero_alphaonly_knn5_spatial4.5_sequential2
 
 # Trainer Settings
 device:

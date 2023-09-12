@@ -3,6 +3,7 @@
 # Lightning Model Settings
 model_args:
   sdim: 128
+  edge_input_dim: 128
   vdim: 16
   depth: 3
   aggr: 'mean'
@@ -11,7 +12,7 @@ model_args:
   learning_rate: 1.0e-4
   weight_decay: 0
 
-  readout: weighted_feature
+  readout: task_aware_attention
   # [weighted_feature, task_aware_attention]
   r_cutoff: 4.5
   channel_nf: 128
@@ -19,8 +20,11 @@ model_args:
     - 256
     - 256
     - 256
+    - 256
+    - 256
+    - 256
   embedding_dim: 256
-  num_relation: 7
+  num_relation: 6
   channel_dim: 14
   factor_scheduler: 0.75
   layer_norm: True
@@ -38,7 +42,7 @@ val_split: val
 test_split: test
 alpha_only: False
 num_workers: 4
-graph_cache_dir: ./datasets/MultiTask/processed_graphs/hetero_fullatom_knn5_spatial4.5_sequential2
+graph_cache_dir: ./datasets/MultiTask_Resplit/graphs_new/hetero_fullatom_knn5_spatial4.5_sequential2
 
 # Trainer Settings
 device:
@@ -46,11 +50,11 @@ device:
   - 1
   - 2
   - 3
-nruns: 3
-wandb: False
+nruns: 2
+wandb: True
 save_dir: hemenet
 gradient_clip_val: 10
 load_ckpt: null
 seed: 817
 batch_accum_grad: 1
-max_epochs: 20
+max_epochs: 50

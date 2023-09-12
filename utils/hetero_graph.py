@@ -116,12 +116,16 @@ def hetero_graph_transform(
         max_channel = MAX_CHANNEL
         protein_feats = torch.as_tensor(list(map(amino_acids, protein_seq)), dtype=torch.long, device=device)
     else:
-        # TODO: chain
-        pos = torch.as_tensor(atom_df[["x", "y", "z"]].values, dtype=init_dtype).unsqueeze(1) # [N, 1, d]
-        channel_weights = torch.ones((len(pos), 1)) # [N, 1]
+        pos = torch.as_tensor(atom_df[["x", "y", "z"]].values, dtype=init_dtype, device=device).unsqueeze(1) # [N, 1, d]
+        # The implementation of getting chains
+        res_info = torch.as_tensor(protein_df['residue'].array, device=device)
+        atom_chain_id = torch.as_tensor(protein_df['chain'].factorize()[0], device=device)
+        start_idx = torch.arange(len(res_info) - 1, device=device)[res_info[:-1] != res_info[1:]] + 1
+        chain = atom_chain_id.gather(0, torch.cat([start_idx.new_tensor([0]), start_idx]))
+        channel_weights = torch.ones((len(pos), 1), device=device) # [N, 1]
         residue_elements = None
         max_channel = 1
-        protein_feats = torch.as_tensor(list(map(amino_acids, protein_df['element'])), dtype=torch.long)
+        protein_feats = torch.as_tensor(list(map(amino_acids, protein_df['element'])), dtype=torch.long, device=device)
     # end = datetime.now()
     # print("Time Cost for Generating multichannel feature for ", item_name, " is: ", end - start)
     if len(ligand_df) != 0:
