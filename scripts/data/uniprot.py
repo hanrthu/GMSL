@@ -5,7 +5,7 @@ import httpx
 import pandas as pd
 from tqdm.contrib.concurrent import process_map
 
-from gmsl.datamodule import get_pdb_ids, uniprot_table_path
+from gmsl.data import PROCESSED_DIR, get_pdb_ids
 
 def parse_entry(entry: dict) -> list[tuple[str, str, str]]:
     pdb_id = entry['rcsb_id']
@@ -51,7 +51,7 @@ def main():
     print(len(entry_ids))
     result = process_map(get_entries, list(cytoolz.partition_all(chunksize, entry_ids)), ncols=80, max_workers=32)
     table = pd.DataFrame(list(cytoolz.concat(result)), columns=['pdb_id', 'chain', 'uniprot'])
-    table.to_csv(uniprot_table_path, index=False)
+    table.to_csv(PROCESSED_DIR / 'uniprot.csv', index=False)
 
 if __name__ == '__main__':
     main()
