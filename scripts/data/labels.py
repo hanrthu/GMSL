@@ -1,8 +1,10 @@
+from argparse import ArgumentParser
 import functools
 import json
 from pathlib import Path
 
 import cytoolz
+import pandas as pd
 
 from gmsl.data import PROCESSED_DIR, get_uniprot_table
 
@@ -70,9 +72,27 @@ def gen_go_labels():
     dump(uniprot_to_go, PROCESSED_DIR / 'uniprot_to_go.json')
     return uniprot_to_go, pdb_to_go
 
+def gen_lba_labels():
+    ret = {}
+    for line in Path('datasets/PDBbind/refined-set/index/INDEX_general_PL_data.2020').read_text().splitlines():
+        if line.startswith('#'):
+            continue
+        parts = line.strip().split()
+        ret[parts[0]] = float(parts[3])
+    pd.Series(ret, name='lba').to_csv(PROCESSED_DIR / 'lba.csv', index_label='pdb_id')
+
+def gen_ppi_labels():
+    root_dir = 'datasets/PDBbind/pp_affinity.xlsx'
+    pp_info = pd.read_excel(root_dir, header=1, index_col='PDB code')
+    pp_info['pKd pKi pIC50'].to_csv(PROCESSED_DIR / 'ppi.csv', index_label='pdb_id', header=['ppi'])
+
 def main():
-    gen_ec_labels()
-    gen_go_labels()
+    parser = ArgumentParser()
+    parser.add_argument('tasks', nargs='*', type=str)
+    args = parser.parse_args()
+    for task in args.tasks:
+        func_name = f'gen_{task}_labels'
+        globals()[func_name]()
 
 if __name__ == '__main__':
     main()

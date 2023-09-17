@@ -2,10 +2,13 @@ from functools import cache
 import itertools as it
 import json
 from pathlib import Path
+from typing import TypeAlias
 
 import pandas as pd
 
 PROCESSED_DIR = Path('processed-data')
+
+PathLike: TypeAlias = str | bytes | Path
 
 __all__ = [
     'PROCESSED_DIR',
@@ -33,9 +36,9 @@ def get_pdb_ids(save_path: Path | None = None) -> list[str]:
         )
         for chain in (Path('datasets') / task / f'nrPDB-{abbr}_{split}.txt').read_text().splitlines()
     ]
-    ret = sorted(set(map(str.upper, ids)))
+    ret = sorted(set(map(str.lower, ids)))
     if save_path is not None:
-        save_path.write_text('\n'.join(ret))
+        save_path.write_text('\n'.join(ret) + '\n')
     return ret
 
 class UniProtTable:

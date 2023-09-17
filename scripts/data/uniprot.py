@@ -8,7 +8,7 @@ from tqdm.contrib.concurrent import process_map
 from gmsl.data import PROCESSED_DIR, get_pdb_ids
 
 def parse_entry(entry: dict) -> list[tuple[str, str, str]]:
-    pdb_id = entry['rcsb_id']
+    pdb_id = entry['rcsb_id'].lower()
     entities = entry['polymer_entities']
     ret = []
     for entity in entities:
