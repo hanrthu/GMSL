@@ -4,6 +4,11 @@ import json
 from pathlib import Path
 from typing import TypeAlias
 
+from Bio.PDB.Atom import Atom, DisorderedAtom
+from Bio.PDB.Entity import Entity
+import fcntl
+import numpy as np
+
 import pandas as pd
 
 PROCESSED_DIR = Path('processed-data')
@@ -15,26 +20,25 @@ __all__ = [
     'get_pdb_ids',
     'get_uniprot_table',
     'get_go_table',
+    'cmp_entity',
+    'append_ln',
 ]
 
 def get_pdb_ids(save_path: Path | None = None) -> list[str]:
     if save_path is not None and save_path.exists():
         return save_path.read_text().splitlines()
     ids = [
-        entry_dir.name.split('.', 1)[0]
+        entry_path_or_dir.name.split('.', 1)[0]
         for subdir in ['PP', 'refined-set']
-        for entry_dir in (Path('datasets') / 'PDBbind' / subdir).iterdir()
-        if entry_dir.name not in ['index', 'readme']
+        for entry_path_or_dir in (Path('datasets') / 'PDBbind' / subdir).iterdir()
+        if entry_path_or_dir.name not in ['index', 'readme']
     ] + [
-        chain.split('-', 1)[0]
-        for (task, abbr), split in it.product(
-            [
-                ('EnzymeCommission', 'EC'),
-                ('GeneOntology', 'GO'),
-            ],
+        filepath.stem.split('-', 1)[0]
+        for task, split in it.product(
+            ['EnzymeCommission', 'GeneOntology'],
             ['train', 'valid', 'test'],
         )
-        for chain in (Path('datasets') / task / f'nrPDB-{abbr}_{split}.txt').read_text().splitlines()
+        for filepath in (Path('datasets') / task / split).glob('*.pdb')
     ]
     ret = sorted(set(map(str.lower, ids)))
     if save_path is not None:
@@ -73,3 +77,25 @@ class GeneOntologyTable:
 @cache
 def get_go_table():
     return GeneOntologyTable()
+
+def cmp_entity(a: Entity | Atom, b: Entity | Atom):
+    if not issubclass(type(a), type(b)) and not issubclass(type(b), type(a)):
+        return False
+
+    if isinstance(a, (Atom, DisorderedAtom)):
+        return np.allclose(a.coord, b.coord, atol=1e-3) and a.element == b.element
+
+    if len(a) != len(b):
+        return False
+
+    for x, y in zip(a, b):
+        if not cmp_entity(x, y):
+            return False
+
+    return True
+
+def append_ln(filepath: Path, s: str):
+    with open(filepath, 'a') as f:
+        fcntl.lockf(f, fcntl.LOCK_EX)
+        f.write(s + '\n')
+        fcntl.lockf(f, fcntl.LOCK_UN)

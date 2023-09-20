@@ -33,7 +33,7 @@ def main():
     batch_size = 32
     save_dir.mkdir(exist_ok=True)
     pdb_ids = set(get_pdb_ids(save_path=Path('datasets') / 'pdb_ids.txt'))
-    pdb_ids -= set(path.stem.upper() for path in save_dir.iterdir())
+    pdb_ids -= set(path.stem for path in save_dir.iterdir())
     process_map(
         download_batch,
         list(cytoolz.partition_all(batch_size, pdb_ids)),

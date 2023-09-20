@@ -4,7 +4,6 @@ from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 from copy import deepcopy
 import itertools as it
-import json
 from operator import length_hint
 import os
 from pathlib import Path
@@ -17,47 +16,109 @@ from tqdm import tqdm
 from tqdm.auto import tqdm as tqdm_auto
 import yaml
 
-from utils import hetero_graph_transform, prot_graph_transform
+from gmsl.data.parse import ModelData, ResidueData
+from utils import hetero_graph_transform
 
-chain_uniprot_info = json.loads(Path('output_info/uniprot_dict_all.json').read_bytes())
-remove_hydrogen: bool = True
 hetero: bool
 supernode: bool = False
-alpha_only: bool
 max_seq_len: int = 3000
 
-def retain_alpha_carbon(item):
-    protein_df = item['atoms_protein']
-    # print("Original Nodes:", len(protein_df))
-    new_protein_df = protein_df[protein_df.name == 'CA'].reset_index(drop=True)
-    item['atoms_protein'] = new_protein_df
-    # print("Retaining Alpha Carbons:", len(new_protein_df))
-    return item
+def read_item(item_path: Path) -> tuple[ModelData, ResidueData | None]:
+    if item_path.resolve().is_dir():
+        model = pd.read_pickle(item_path / 'protein.pkl')
+        ligand = pd.read_pickle(item_path / 'ligand.pkl')
+    else:
+        model = pd.read_pickle(item_path)
+        ligand = None
+    return model, ligand
 
-def process(item: dict, device: Device, alpha_only=False, hetero=True):
-    if alpha_only:
-        item = retain_alpha_carbon(item)
-    ligand_df: pd.DataFrame | None = item['atoms_ligand']
-    protein_df: pd.DataFrame = item['atoms_protein']
-    if hetero:
-        residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
+# def read_item(item_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+#     model: ModelData
+#     ligand: ResidueData | None
+#     if item_path.resolve().is_dir():
+#         model = pd.read_pickle(item_path / 'protein.pkl')
+#         ligand = pd.read_pickle(item_path / 'ligand.pkl')
+#     else:
+#         model = pd.read_pickle(item_path)
+#         ligand = None
+#     protein_df = model.to_df()
+#
+#     if ligand is None:
+#         ligand_df = pd.DataFrame(columns=protein_df.columns)
+#     else:
+#         ligand_df = ligand.to_df()
+#
+#     return protein_df, ligand_df
+
+def gen_multi_channel_coords(
+    protein: ModelData,
+    ligand: ResidueData | None,
+    # protein_df: pd.DataFrame,
+    # ligand_df: pd.DataFrame,
+    # protein_seq: list[str],
+    device: Device = None,
+):
+    res_info = torch.as_tensor(protein_df['residue'].array, device=device)
+    atom_chain_id = torch.as_tensor(protein_df['chain'].factorize()[0], device=device)
+    # protein_pos = torch.as_tensor(protein_df[['x', 'y', 'z']].to_numpy(), dtype=torch.float64, device=device)
+    protein_element = torch.as_tensor(protein_df['element'].map(element_mapping).array, dtype=torch.long, device=device)
+    element_protein = protein_element.new_zeros((len(protein_seq), MAX_CHANNEL))
+    X_protein = protein_pos.new_zeros((len(protein_seq), MAX_CHANNEL, 3))  # [N, n_channel, d]
+    mask_protein = X_protein.new_zeros(X_protein.shape[:-1])
+    start_idx = torch.arange(len(res_info) - 1, device=device)[res_info[:-1] != res_info[1:]] + 1
+    chain_id = atom_chain_id.gather(0, torch.cat([start_idx.new_tensor([0]), start_idx]))
+    assert len(chain_id) == len(X_protein)
+    start_idx = start_idx.cpu()
+    for i, (pos, element) in enumerate(zip(
+        protein_pos.tensor_split(start_idx),
+        protein_element.tensor_split(start_idx),
+    )):
+        pos = pos[:MAX_CHANNEL]
+        element = element[:MAX_CHANNEL]
+        num_channels = len(pos)
+        X_protein[i, :num_channels] = pos
+        element_protein[i, :num_channels] = element
+        mask_protein[i, :num_channels] = 1
+
+    if len(ligand_df) > 0:
+        ligand_coords = torch.as_tensor(ligand_df[['x', 'y', 'z']].to_numpy(), dtype=torch.float64, device=device)
+        ligand_element = torch.as_tensor(ligand_df['element'].map(element_mapping).array, dtype=torch.long, device=device)
+        X_ligand = ligand_coords.new_zeros((len(ligand_df), MAX_CHANNEL, 3))
+        element_ligand = ligand_element.new_zeros((len(ligand_df), MAX_CHANNEL))
+        mask_ligand = X_ligand.new_zeros(X_ligand.shape[:-1])
+        for i, item in enumerate(ligand_coords):
+            X_ligand[i, 0, :] = item
+            element_ligand[i, 0] = ligand_element[i]
+            mask_ligand[i, 0] = 1
+        X = torch.cat([X_protein, X_ligand], dim=0)
+        mask = torch.cat([mask_protein, mask_ligand], dim=0)
+        element = torch.cat([element_protein, element_ligand], dim=0)
     else:
-        residue_df = protein_df
-    if isinstance(ligand_df, pd.DataFrame):
-        atom_df = pd.concat([protein_df, ligand_df], axis=0)
-        res_ligand_df = pd.concat([residue_df, ligand_df], axis=0)
-    else:
-        atom_df = protein_df
-        res_ligand_df = residue_df
-    if remove_hydrogen:
-        atom_df = atom_df[atom_df['element'] != 'H'].reset_index(drop=True)
-        res_ligand_df = res_ligand_df[res_ligand_df.element != 'H'].reset_index(drop=True)
+        X = X_protein
+        mask = mask_protein
+        element = element_protein
+    return X, mask, element, chain_id
+
+
+def process(item_path: Path, device: Device):
+    pdb_id = item_path.stem
+    protein_df, ligand_df = read_item(item_path)
+    residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False)
+    # if isinstance(ligand_df, pd.DataFrame):
+    #     atom_df = pd.concat([protein_df, ligand_df], axis=0)
+    #     res_ligand_df = pd.concat([residue_df, ligand_df], axis=0)
+    # else:
+    #     atom_df = protein_df
+    #     res_ligand_df = residue_df
+    # if remove_hydrogen:
+    #     atom_df = atom_df[atom_df['element'] != 'H'].reset_index(drop=True)
+    #     res_ligand_df = res_ligand_df[res_ligand_df.element != 'H'].reset_index(drop=True)
 
     # 此时 ligand 所对应的atom被自动设置为0
     lig_flag = torch.zeros(res_ligand_df.shape[0], dtype=torch.long, device=device)
     chain_ids = list(set(protein_df['chain']))
     uniprot_ids = []
-    labels = item['labels']
+    # labels = item['labels']
     pf_ids = []
     # 目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
     for i, chain_id in enumerate(chain_ids):
@@ -84,24 +145,17 @@ def process(item: dict, device: Device, alpha_only=False, hetero=True):
     num_classes = [538, 490, 1944, 321]
     total_classes = sum(num_classes)
     # 找个办法把chain和Uniprot对应起来，然后就可以查了
-    if hetero:
-        graph = hetero_graph_transform(
-            item_name=item['complex_id'],
-            atom_df=atom_df,
-            super_node=supernode,
-            protein_seq=item['protein_seq'],
-            alpha_only=alpha_only,
-            device=device,
-        )
-    else:
-        graph = prot_graph_transform(
-            atom_df=atom_df,
-            cutoff=4.5,
-            max_num_neighbors=9,
-            flag=lig_flag,
-            super_node=False,
-            offset_strategy=0
-        )
+    graph = hetero_graph_transform(
+        pdb_id,
+        protein_df,
+        ligand_df,
+        # item_name=item['complex_id'],
+        # atom_df=atom_df,
+        super_node=supernode,
+        protein_seq=item['protein_seq'],
+        alpha_only=alpha_only,
+        device=device,
+    )
 
     if lig_flag.shape[0] != graph.x.shape[0]:
         print(len(lig_flag), len(graph.x))
