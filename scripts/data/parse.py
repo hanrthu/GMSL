@@ -36,13 +36,15 @@ def process_ligand(src: Path, dst: Path):
     ligand = parse_ligand(src)
     pd.to_pickle(ligand, dst)
 
+def update_skipped_paths(save_path: Path):
+    save_path.touch()
+    skipped_paths.update(set(save_path.read_text().splitlines()))
+
 def main():
-    corrupted_save_path.touch()
-    skipped_paths.update(set(corrupted_save_path.read_text().splitlines()))
-    nmr_save_path.touch()
-    skipped_paths.update(set(nmr_save_path.read_text().splitlines()))
-    # for src in Path('datasets/pdbx-mmcif').glob('*.cif'):
-    #     submit(src, output_dir / 'mmcif' / f'{src.stem}.pkl', False)
+    update_skipped_paths(corrupted_save_path)
+    update_skipped_paths(nmr_save_path)
+    for src in Path('datasets/pdbx-mmcif').glob('*.cif'):
+        submit(src, output_dir / 'mmcif' / f'{src.stem}.pkl', False)
     for src in Path('datasets/PDBbind/PP').glob('*.ent.pdb'):
         submit(src, output_dir / 'PDBbind/PP' / (src.stem.split('.')[0] + '.pkl'), True)
     for src in Path('datasets/PDBbind/refined-set').glob('*/*_protein.pdb'):
@@ -56,9 +58,12 @@ def main():
             pdb_id = pdb_id.lower()
             submit(src, output_dir / task / f'{pdb_id}-{chain_id}.pkl', False)
     if jobs:
+        # from tqdm import tqdm
+        # for args in tqdm(jobs):
+        #     process_model(*args)
         process_map(
             process_model, *zip(*jobs),
-            max_workers=1, chunksize=4, ncols=80, desc='process model',
+            max_workers=32, chunksize=4, ncols=80, desc='process model',
         )
         jobs.clear()
     for src in Path('datasets/PDBbind/refined-set').glob('*/*_ligand.mol2'):
