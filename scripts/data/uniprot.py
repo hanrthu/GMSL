@@ -5,9 +5,10 @@ import httpx
 import pandas as pd
 from tqdm.contrib.concurrent import process_map
 
-from gmsl.data import PROCESSED_DIR, get_pdb_ids
+from gmsl.data import get_pdb_ids
+from gmsl.data.table import uniprot_table_path
 
-def parse_entry(entry: dict) -> list[tuple[str, str, str]]:
+def parse_entry(entry: dict) -> list[tuple[str, str]]:
     pdb_id = entry['rcsb_id'].lower()
     entities = entry['polymer_entities']
     ret = []
@@ -16,7 +17,7 @@ def parse_entry(entry: dict) -> list[tuple[str, str, str]]:
         uniprot_ids = entity.pop('uniprot_ids')
         if uniprot_ids is not None and len(uniprot_ids) == 1:
             uniprot_id = uniprot_ids[0]
-            ret.extend([(pdb_id, chain_id, uniprot_id) for chain_id in entity['auth_asym_ids']])
+            ret.extend([(f'{pdb_id}-{chain_id}', uniprot_id) for chain_id in entity['auth_asym_ids']])
     return ret
 
 def get_entries(entry_ids: list[str]):
@@ -46,12 +47,13 @@ def get_entries(entry_ids: list[str]):
     return list(cytoolz.concat(map(parse_entry, entries)))
 
 def main():
-    chunksize = 300
+    batch_size = 300
     entry_ids = get_pdb_ids()
     print(len(entry_ids))
-    result = process_map(get_entries, list(cytoolz.partition_all(chunksize, entry_ids)), ncols=80, max_workers=32)
-    table = pd.DataFrame(list(cytoolz.concat(result)), columns=['pdb_id', 'chain', 'uniprot'])
-    table.to_csv(PROCESSED_DIR / 'uniprot.csv', index=False)
+    result = process_map(get_entries, list(cytoolz.partition_all(batch_size, entry_ids)), ncols=80, max_workers=32)
+    table = pd.DataFrame(list(cytoolz.concat(result)), columns=['pdb_id', 'uniprot'])
+    table.sort_index()
+    table.to_csv(uniprot_table_path, index=False)
 
 if __name__ == '__main__':
     main()

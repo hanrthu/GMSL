@@ -1,10 +1,6 @@
 from argparse import ArgumentParser
-from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import ProcessPoolExecutor
-from contextlib import contextmanager
-from copy import deepcopy
+from collections.abc import Sequence
 import itertools as it
-from operator import length_hint
 import os
 from pathlib import Path
 import pickle
@@ -13,11 +9,10 @@ import pandas as pd
 import torch
 from torch.types import Device
 from tqdm import tqdm
-from tqdm.auto import tqdm as tqdm_auto
 import yaml
 
-from gmsl.data.parse import ModelData, ResidueData
-from utils import hetero_graph_transform
+from gmsl.data import AffinityTable, PropertyTable, MAX_CHANNEL, ModelData, MultiChannelData, ResidueData
+from utils import KNNEdge, MyData, SequentialEdge
 
 hetero: bool
 supernode: bool = False
@@ -32,170 +27,93 @@ def read_item(item_path: Path) -> tuple[ModelData, ResidueData | None]:
         ligand = None
     return model, ligand
 
-def process(item_path: Path, device: Device):
-    pdb_id = item_path.stem
-    protein, ligand = read_item(item_path)
-    pos, channel_weights, residue_elements, chain = protein.to_multi_channel(device)
-
-    # residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False)
-    # if isinstance(ligand_df, pd.DataFrame):
-    #     atom_df = pd.concat([protein_df, ligand_df], axis=0)
-    #     res_ligand_df = pd.concat([residue_df, ligand_df], axis=0)
-    # else:
-    #     atom_df = protein_df
-    #     res_ligand_df = residue_df
-    # if remove_hydrogen:
-    #     atom_df = atom_df[atom_df['element'] != 'H'].reset_index(drop=True)
-    #     res_ligand_df = res_ligand_df[res_ligand_df.element != 'H'].reset_index(drop=True)
-
-    # 此时 ligand 所对应的atom被自动设置为0
-    lig_flag = torch.zeros(res_ligand_df.shape[0], dtype=torch.long, device=device)
-    chain_ids = list(set(protein_df['chain']))
-    uniprot_ids = []
-    # labels = item['labels']
-    pf_ids = []
-    # 目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
-    for i, chain_id in enumerate(chain_ids):
-        lig_flag[torch.as_tensor(res_ligand_df['chain'].array == chain_id, device=device)] = i + 1
-        if '-' in item['complex_id']:
-            pf_ids.append(0)
-            break
-        if chain_id in chain_uniprot_info[item['complex_id']]:
-            uniprot_id = chain_uniprot_info[item['complex_id']][chain_id]
-            uniprot_ids.append(uniprot_id)
-            labels_uniprot = labels['uniprots']
-            if uniprot_id in labels_uniprot:
-                for idx, u in enumerate(labels_uniprot):
-                    if uniprot_id == u:
-                        pf_ids.append(idx)
-                        break
-            else:
-                pf_ids.append(-1)
-                print("Error, you shouldn't come here!")
-        else:
-            pf_ids.append(-1)
-    # ec, mf, bp, cc
-    # num_classes = 538 + 490 + 1944 + 321
-    num_classes = [538, 490, 1944, 321]
-    total_classes = sum(num_classes)
-    # 找个办法把chain和Uniprot对应起来，然后就可以查了
-    graph = hetero_graph_transform(
-        pdb_id,
-        protein_df,
-        ligand_df,
-        # item_name=item['complex_id'],
-        # atom_df=atom_df,
-        super_node=supernode,
-        protein_seq=item['protein_seq'],
-        alpha_only=alpha_only,
-        device=device,
+def hetero_graph_transform(data: MultiChannelData, chain: torch.Tensor, device: Device = None):
+    knn = KNNEdge(k=5, min_distance=4.5, max_channel=MAX_CHANNEL)
+    # spatial = SpatialEdge(radius=cutoff, min_distance=4.5, max_channel=max_channel)
+    sequential = SequentialEdge(max_distance=2)
+    # edge_layers = [knn, spatial, sequential]
+    edge_layers = [knn, sequential]
+    graph = MyData(
+        x=data.node_feats,
+        residue_elements=data.element,
+        num_nodes=data.node_feats.shape[0],
+        pos=data.pos,
+        channel_weights=data.mask,
+        num_residues = chain.shape[0],
+        edge_feature=None,
+        chain=chain,
     )
+    edge_list = []
+    num_edges = []
+    num_relations = []
+    for layer in edge_layers:
+        edges, num_relation = layer(graph)
+        edge_list.append(edges)
+        num_edges.append(len(edges))
+        num_relations.append(num_relation)
 
-    if lig_flag.shape[0] != graph.x.shape[0]:
-        print(len(lig_flag), len(graph.x))
-        print(item['complex_id'])
-        raise ValueError
+    edge_list = torch.cat(edge_list)
+    num_edges = torch.as_tensor(num_edges, device=device)
 
-    graph.affinities = torch.tensor([[labels['lba'], labels['ppi']]], dtype=torch.float32)
-    ec = labels['ec']
-    go = labels['go']
-    graph.functions = []
-    graph.valid_masks = []
-    for i, pf_id in enumerate(pf_ids):
-        if pf_id == -1:
-            valid_mask = torch.zeros(len(num_classes))
-            prop = torch.zeros(total_classes)
-            graph.functions.append(prop)
-            graph.valid_masks.append(valid_mask)
-            continue
-        valid_mask = torch.ones(len(num_classes))
-        annotations = []
-        ec_annot = ec[pf_id]
-        go_annot = go[pf_id]
-        if ec_annot == -1:
-            valid_mask[0] = 0
-        else:
-            annotations = annotations + ec_annot
-        if go_annot == -1:
-            valid_mask[1:] = 0
-        else:
-            mf_annot = go_annot['molecular_functions']
-            mf_annot = [j + 538 for j in mf_annot]
-            if len(mf_annot) == 0:
-                valid_mask[1] = 0
-            bp_annot = go_annot['biological_process']
-            bp_annot = [j + 538 + 490 for j in bp_annot]
-            if len(bp_annot) == 0:
-                valid_mask[2] = 0
-            cc_annot = go_annot['cellular_component']
-            cc_annot = [j + 538 + 490 + 1944 for j in cc_annot]
-            if len(cc_annot) == 0:
-                valid_mask[3] = 0
-            annotations = annotations + mf_annot + bp_annot + cc_annot
+    num_relations = torch.as_tensor(num_relations, device=device)
+    num_relation = num_relations.sum()
+    offsets = (num_relations.cumsum(0) - num_relations).repeat_interleave(num_edges)
+    edge_list[:, 2] += offsets
 
-        prop = torch.zeros(total_classes, dtype=torch.get_default_dtype()).scatter_(0, torch.tensor(annotations), 1)
-        graph.functions.append(prop)
-        graph.valid_masks.append(valid_mask)
-    try:
-        graph.functions = torch.vstack(graph.functions)
-        graph.valid_masks = torch.vstack(graph.valid_masks)
-    except:
-        print('PF ids:', pf_ids)
-        print(item['complex_id'], chain_ids, labels)
-        print(len(graph.functions))
-        print(pf_ids)
-        print(graph.functions)
-        raise RuntimeError
-    graph.chains = lig_flag[lig_flag != 0]
-    # print(item['complex_id'])
+    # 这里把edge_index和edge_relation分开装，是为了能够让处理batch的时候不要把relation也加上offset
+    graph.edge_index = edge_list[:, :2].t() # [2, |E|]
+    graph.edge_relations = edge_list[:, 2]
+    graph.edge_weights = torch.ones(len(edge_list))
+    graph.num_relation = num_relation
+    return graph
 
+property_table: PropertyTable = PropertyTable.get()
+affinity_table: AffinityTable = AffinityTable.get()
+
+def build_property(pdb_id: str, chain_ids: Sequence[str]):
+    properties, valid_masks = zip(*(
+        property_table.build(pdb_id, chain_id)
+        for chain_id in chain_ids
+    ))
+    return torch.stack(properties), torch.stack(valid_masks)
+
+def build_graph(
+    protein: ModelData,
+    ligand: ResidueData | None,
+    affinities: torch.Tensor,
+    pdb_id: str,
+    chain_ids: Sequence[str],
+    device: Device,
+) -> MyData:
+    protein_data, chain = protein.to_multi_channel(device)
+    chain += 1
+    if ligand is None:
+        multi_channel_data = protein_data
+        lig_flag = chain
+    else:
+        ligand_data = ligand.to_multi_channel(device)
+        multi_channel_data = MultiChannelData.merge(protein_data, ligand_data)
+        lig_flag = torch.cat([chain, chain.new_zeros(ligand_data.n)])
+    graph = hetero_graph_transform(multi_channel_data, chain, device)
+    graph.chains = chain
     graph.lig_flag = lig_flag
-    if len(chain_ids) != len(graph.functions):
-        print(item['complex_id'])
-        print(chain_ids)
-        print(len(chain_ids), len(graph.functions))
-    graph.prot_id = item['complex_id']
+    graph.affinities = affinities
+    graph.functions, graph.valid_masks = build_property(pdb_id, chain_ids)
     graph.type = 'multi'
     return graph
 
-# almost copy & paste from tqdm
-@contextmanager
-def ensure_lock(tqdm_class, lock_name=''):
-    '''get (create if necessary) and then restore `tqdm_class`'s lock'''
-    old_lock = getattr(tqdm_class, '_lock', None)  # don't create a new lock
-    lock = old_lock or tqdm_class.get_lock()  # maybe create a new lock
-    lock = getattr(lock, lock_name, lock)  # maybe subtype
-    tqdm_class.set_lock(lock)
-    yield lock
-    if old_lock is None:
-        del tqdm_class._lock
+def process(item_path: Path, device: Device):
+    item_id = item_path.stem
+    affinities = affinity_table.build(item_id, device)
+    protein, ligand = read_item(item_path)
+    if '-' in item_id:
+        pdb_id, chain_id = item_id.split('-')
+        chain_ids = [chain_id]
     else:
-        tqdm_class.set_lock(old_lock)
-
-def _executor_map(PoolExecutor: type[ProcessPoolExecutor], fn, *iterables, **tqdm_kwargs):
-    kwargs = tqdm_kwargs.copy()
-    if 'total' not in kwargs:
-        kwargs['total'] = length_hint(iterables[0])
-    tqdm_class = kwargs.pop('tqdm_class', tqdm_auto)
-    max_workers = kwargs.pop('max_workers', min(32, os.cpu_count() + 4))
-    chunksize = kwargs.pop('chunksize', 1)
-    lock_name = kwargs.pop('lock_name', '')
-    with ensure_lock(tqdm_class, lock_name=lock_name) as lk:
-        # share lock in case workers are already using `tqdm`
-        with PoolExecutor(max_workers=max_workers, initializer=tqdm_class.set_lock, initargs=(lk,)) as ex:
-            return list(tqdm_class(ex.map(fn, *iterables, chunksize=chunksize), **kwargs))
-
-class PostCopyProcessPoolExecutor(ProcessPoolExecutor):
-    def map(self, fn: Callable, *iterables: Iterable, timeout: float | None = None, chunksize: int = 1) -> Iterator:
-        for x in super().map(fn, *iterables, timeout=timeout, chunksize=chunksize):
-            # https://github.com/pytorch/pytorch/issues/973#issuecomment-459398189
-            yield deepcopy(x)
-
-def process_map(fn, *iterables, **tqdm_kwargs):
-    if 'lock_name' not in tqdm_kwargs:
-        tqdm_kwargs = tqdm_kwargs.copy()
-        tqdm_kwargs['lock_name'] = 'mp_lock'
-    return _executor_map(PostCopyProcessPoolExecutor, fn, *iterables, **tqdm_kwargs)
+        pdb_id = item_id
+        chain_ids = protein.chains.items()
+    graph = build_graph(protein, ligand, affinities, pdb_id, chain_ids, device)
+    torch.save()
 
 def get_argparse():
     parser = ArgumentParser(
