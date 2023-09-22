@@ -6,11 +6,11 @@ from openbabel import pybel
 import pandas as pd
 from tqdm.contrib.concurrent import process_map
 
-from gmsl.data import PROCESSED_DIR, ModelData, append_ln, parse_ligand, parse_structure
+from gmsl.data import ModelData, SavedSet, normalize_item_id, parse_ligand, parse_structure
+from gmsl.data.path import parsed_dir
 
-output_dir = PROCESSED_DIR / 'parsed'
-corrupted_save_path = output_dir / 'corrupted.txt'
-nmr_save_path = output_dir / 'nmr.txt'
+corrupted_paths = SavedSet(parsed_dir / 'corrupted.txt')
+nmr_paths = SavedSet(parsed_dir / 'nmr.txt')
 
 jobs: list[tuple[Path, Path, ...]] = []
 skipped_paths: set[str] = set()
@@ -23,10 +23,10 @@ def process_model(src: Path, dst: Path, ignore_nmr: bool):
     try:
         structure = parse_structure(src)
     except (ValueError, PDBConstructionException):
-        append_ln(corrupted_save_path, str(src))
+        corrupted_paths.save(str(src))
         return
     if ignore_nmr and len(structure) != 1:
-        append_ln(nmr_save_path, str(src))
+        nmr_paths.save(str(src))
         return
     model = ModelData.from_model(structure[0])
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -41,22 +41,21 @@ def update_skipped_paths(save_path: Path):
     skipped_paths.update(set(save_path.read_text().splitlines()))
 
 def main():
-    update_skipped_paths(corrupted_save_path)
-    update_skipped_paths(nmr_save_path)
+    global skipped_paths
+    skipped_paths = corrupted_paths.set | nmr_paths.set
     for src in Path('datasets/pdbx-mmcif').glob('*.cif'):
-        submit(src, output_dir / 'mmcif' / f'{src.stem}.pkl', False)
+        submit(src, parsed_dir / 'mmcif' / f'{src.stem}.pkl', False)
     for src in Path('datasets/PDBbind/PP').glob('*.ent.pdb'):
-        submit(src, output_dir / 'PDBbind/PP' / (src.stem.split('.')[0] + '.pkl'), True)
+        submit(src, parsed_dir / 'PDBbind/PP' / (src.stem.split('.')[0] + '.pkl'), True)
     for src in Path('datasets/PDBbind/refined-set').glob('*/*_protein.pdb'):
-        submit(src, output_dir / 'PDBbind/refined-set' / src.parent.name / 'protein.pkl', True)
+        submit(src, parsed_dir / 'PDBbind/refined-set' / src.parent.name / 'protein.pkl', True)
     for task, split in it.product(
         ['EnzymeCommission', 'GeneOntology'],
         ['train', 'valid', 'test'],
     ):
         for src in (Path('datasets') / task / split).glob('*.pdb'):
-            pdb_id, chain_id = src.stem.split('_', 1)[0].split('-')
-            pdb_id = pdb_id.lower()
-            submit(src, output_dir / task / f'{pdb_id}-{chain_id}.pkl', False)
+            item_id = src.stem.split('_', 1)[0]
+            submit(src, parsed_dir / task / f'{normalize_item_id(item_id)}.pkl', False)
     if jobs:
         # from tqdm import tqdm
         # for args in tqdm(jobs):
@@ -67,8 +66,8 @@ def main():
         )
         jobs.clear()
     for src in Path('datasets/PDBbind/refined-set').glob('*/*_ligand.mol2'):
-        if (case_output_dir := output_dir / 'PDBbind/refined-set' / src.parent.name).exists():
-            submit(src, case_output_dir / 'ligand.pkl')
+        if (case_parsed_dir := parsed_dir / 'PDBbind/refined-set' / src.parent.name).exists():
+            submit(src, case_parsed_dir / 'ligand.pkl')
     if jobs:
         pybel.ob.obErrorLog.SetOutputLevel(0)
         process_map(

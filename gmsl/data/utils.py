@@ -1,21 +1,19 @@
 import itertools as it
 from pathlib import Path
-from typing import TypeAlias
 
 from Bio.PDB.Atom import Atom, DisorderedAtom
 from Bio.PDB.Entity import Entity
 import fcntl
 import numpy as np
 
-PROCESSED_DIR = Path('processed-data')
-
-PathLike: TypeAlias = str | bytes | Path
+from gmsl.data.path import PathLike
 
 __all__ = [
-    'PROCESSED_DIR',
     'get_pdb_ids',
+    'normalize_item_id',
     'cmp_entity',
     'append_ln',
+    'SavedSet',
 ]
 
 def get_pdb_ids(save_path: Path | None = None) -> list[str]:
@@ -39,6 +37,12 @@ def get_pdb_ids(save_path: Path | None = None) -> list[str]:
         save_path.write_text('\n'.join(ret) + '\n')
     return ret
 
+def normalize_item_id(item_id: str):
+    if '-' in item_id:
+        pdb_id, chain_id = item_id.split('-')
+        return f'{pdb_id.lower()}-{chain_id}'
+    return item_id.lower()
+
 def cmp_entity(a: Entity | Atom, b: Entity | Atom):
     if not issubclass(type(a), type(b)) and not issubclass(type(b), type(a)):
         return False
@@ -60,3 +64,18 @@ def append_ln(filepath: Path, s: str):
         fcntl.lockf(f, fcntl.LOCK_EX)
         f.write(s + '\n')
         fcntl.lockf(f, fcntl.LOCK_UN)
+
+class SavedSet:
+    def __init__(self, save_path: PathLike):
+        self.save_path = save_path = Path(save_path)
+        if not save_path.exists():
+            save_path.parent.mkdir(exist_ok=True, parents=True)
+            save_path.touch()
+        self.set = set(save_path.read_text().splitlines())
+
+    def __contains__(self, item):
+        return item in self.set
+
+    def save(self, item: str):
+        if item not in self.set:
+            append_ln(self.save_path, item)

@@ -105,8 +105,22 @@ def load_config(cfg_file, context=None):
 
 # Modified torch_geometric.data.data for better representation ability
 class MyData(Data):
-    chain: pd.Series
+    edge_relations: torch.Tensor
+
+    chains: torch.Tensor
     channel_weights: torch.Tensor
+    residue_elements: torch.Tensor
+
+    affinities: torch.Tensor
+    functions: torch.Tensor
+
+    @property
+    def num_knn_relations(self) -> int:
+        return (self.edge_relations == 0).sum()
+
+    @property
+    def num_sequential_relations(self):
+        return self.edge_relations.shape[0] - self.num_knn_relations
 
     def __init__(
         self, x: OptTensor = None, edge_index: OptTensor = None,

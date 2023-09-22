@@ -8,7 +8,8 @@ from Bio.PDB.Chain import Chain
 import cytoolz
 from tqdm.contrib.concurrent import process_map
 
-from gmsl.data import PROCESSED_DIR, cmp_entity, parse_model
+from gmsl.data import cmp_entity, parse_model
+from gmsl.data.path import PROCESSED_DIR
 
 filepaths: dict[str, dict[str, Path]] = {}
 

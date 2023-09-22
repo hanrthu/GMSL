@@ -20,7 +20,15 @@ def block_knn_graph(pos: torch.Tensor, channel_weights: torch.Tensor, k: int, ep
         return edge_list
     else:
         # Implementation of block knn edge construction
-        X_dist = (pos[:, None, :, None] - pos[None, :, None, :]).pow(2).sum(dim=-1)
+        X_dist = pos.new_zeros((pos.shape[0], pos.shape[0], pos.shape[1], pos.shape[1]))
+        pos2 = pos.pow(2)
+        # do not touch, saving GPU memory
+        for i in range(pos.shape[-1]):
+            X_dist += pos2[:, None, :, None, i]
+            X_dist += pos2[None, :, None, :, i]
+            X_dist -= 2 * pos[:, None, :, None, i] * pos[None, :, None, :, i]
+        # X_dist = (pos[:, None, :, None] - pos[None, :, None, :]).pow(2).sum(dim=-1)
+
         pos_pad = channel_weights == 0
         pos_pad = pos_pad[:, None, :, None] | pos_pad[None, :, None, :]
         X_dist[pos_pad] = torch.inf
@@ -84,7 +92,7 @@ class KNNEdge(object):
 
     eps = 1e-10
 
-    def __init__(self, k=10, min_distance=5, max_distance=0, max_channel=1):
+    def __init__(self, k=10, min_distance: int = 5, max_distance: int = 0, max_channel: int = 1):
         super(KNNEdge, self).__init__()
         self.k = k
         self.min_distance = min_distance
@@ -102,19 +110,18 @@ class KNNEdge(object):
             (Tensor, int): edge list of shape :math:`(|E|, 3)`, number of relations
         """
         edge_list = block_knn_graph(graph.pos, graph.channel_weights, k=self.k, eps=self.eps, max_channel=self.max_channel)
-        relation = edge_list.new_zeros((len(edge_list), 1))
-        edge_list = torch.cat([edge_list, relation], dim=-1)
-        # atom2residue = torch.arange(0, len(graph.pos))
         # 这是说在氨基酸序列里不能距离太近
         if self.min_distance > 0:
-            node_in, node_out = edge_list.t()[:2]
-            mask = torch.logical_or(torch.logical_or((node_in - node_out).abs() >= self.min_distance, node_in >= len(graph.chain)), node_out >= len(graph.chain))
+            node_in, node_out = edge_list.T
+            mask = ((node_in - node_out).abs() >= self.min_distance) | (edge_list >= len(graph.chains)).any(dim=-1)
             edge_list = edge_list[mask]
         # 也不能太远
         if self.max_distance > 0:
-            node_in, node_out = edge_list.t()[:2]
-            mask = torch.logical_or(torch.logical_or((node_in - node_out).abs() <= self.max_distance, node_in >= len(graph.chain)), node_out >= len(graph.chain))
+            node_in, node_out = edge_list.T
+            mask = ((node_in - node_out).abs() <= self.max_distance) | (edge_list >= len(graph.chains)).any(dim=-1)
             edge_list = edge_list[mask]
+        relation = edge_list.new_zeros((len(edge_list), 1))
+        edge_list = torch.cat([edge_list, relation], dim=-1)
         return edge_list, 1
 
 class SpatialEdge(object):
@@ -183,7 +190,7 @@ class SequentialEdge(object):
         #注：相比于原版，这里省了很多东西，主要是因为Gearnet只用到了alpha碳，如果要用到其他原子，之后还需要根据原版进一步拓展
         #注 0815：好像无所谓，只需要在氨基酸层级表示序列就行
         edge_list = []
-        chain = graph.chain
+        chain = graph.chains
         node_all = torch.arange(len(chain), device=graph.pos.device)
         for i in range(-self.max_distance, self.max_distance + 1):
             if i > 0:

@@ -14,7 +14,7 @@ import torch
 from torch.types import Device
 from torch.nn import functional as nnf
 
-from gmsl.data.utils import PathLike
+from gmsl.data.path import PathLike
 
 pdb_parser = PDBParser(QUIET=True)
 mmcif_parser = FastMMCIFParser(QUIET=True)
@@ -146,6 +146,7 @@ class MultiChannelData:
 
     @classmethod
     def merge(cls, a: Self, b: Self):
+        # TODO: make this better
         return MultiChannelData(
             torch.cat([a.pos, b.pos]),
             torch.cat([a.element, b.element]),
@@ -188,7 +189,7 @@ class ResidueData:
                     if i == len(atom_names) or atom_names[i] != ref_name:
                         default_indexes.append(i)
                         coords.insert(i, default_coord)
-                        elements.insert(i, ref_name[0])
+                        elements.insert(i, reduce_element(ref_name[0]))
                         atom_names.insert(i, ref_name)
             elif inferred_name != name:
                 name = inferred_name
@@ -233,6 +234,10 @@ class ChainData:
     def num_residues(self):
         return len(self.residues)
 
+    @property
+    def num_atoms(self):
+        return sum(residue.num_atoms for residue in self.residues)
+
 @dataclass
 class ModelData:
     chains: dict[str, ChainData]
@@ -244,6 +249,10 @@ class ModelData:
             for chain_id, chain in model.child_dict.items()
             if chain_id != ' '
         })
+
+    @property
+    def num_atoms(self):
+        return sum(chain.num_atoms for chain in self.chains.values())
 
     def to_multi_channel(self, device: Device):
         num_residues = sum(len(chain.residues) for chain in self.chains.values())
@@ -263,7 +272,7 @@ class ModelData:
                 element[residue_idx, :num_atoms] = torch.as_tensor(residue.elements[:MAX_CHANNEL], device=device)
                 mask[residue_idx, :num_atoms] = 1
                 residue_idx += 1
-        return MultiChannelData(pos, mask, element, nnf.one_hot(resname, num_node_feat_classes)), chain_id
+        return MultiChannelData(pos, element, mask, nnf.one_hot(resname, num_node_feat_classes)), chain_id
 
 def parse_ligand(path: PathLike):
     ligand = next(pybel.readfile('mol2', str(path)))

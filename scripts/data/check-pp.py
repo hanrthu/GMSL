@@ -3,7 +3,8 @@ from pathlib import Path
 from Bio.PDB import FastMMCIFParser, PDBParser
 from tqdm.contrib.concurrent import process_map
 
-from gmsl.data import PROCESSED_DIR, cmp_entity, parse_model
+from gmsl.data import cmp_entity, parse_model
+from gmsl.data.path import PROCESSED_DIR
 
 pdb_parser = PDBParser(QUIET=True)
 mmcif_parser = FastMMCIFParser(QUIET=True)

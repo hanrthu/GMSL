@@ -1,22 +1,17 @@
-from argparse import ArgumentParser
 from collections.abc import Sequence
 import itertools as it
-import os
 from pathlib import Path
-import pickle
 
 import pandas as pd
 import torch
 from torch.types import Device
-from tqdm import tqdm
-import yaml
+from tqdm.contrib.concurrent import process_map
 
-from gmsl.data import AffinityTable, PropertyTable, MAX_CHANNEL, ModelData, MultiChannelData, ResidueData
+from gmsl.data import (
+    AffinityTable, MAX_CHANNEL, ModelData, MultiChannelData, PropertyTable, ResidueData, SavedSet
+)
+from gmsl.data.path import PROCESSED_DIR, graph_save_dir, parsed_dir
 from utils import KNNEdge, MyData, SequentialEdge
-
-hetero: bool
-supernode: bool = False
-max_seq_len: int = 3000
 
 def read_item(item_path: Path) -> tuple[ModelData, ResidueData | None]:
     if item_path.resolve().is_dir():
@@ -27,11 +22,11 @@ def read_item(item_path: Path) -> tuple[ModelData, ResidueData | None]:
         ligand = None
     return model, ligand
 
+k_KNN = 7
+
 def hetero_graph_transform(data: MultiChannelData, chain: torch.Tensor, device: Device = None):
-    knn = KNNEdge(k=5, min_distance=4.5, max_channel=MAX_CHANNEL)
-    # spatial = SpatialEdge(radius=cutoff, min_distance=4.5, max_channel=max_channel)
+    knn = KNNEdge(k=k_KNN, min_distance=5, max_channel=MAX_CHANNEL)
     sequential = SequentialEdge(max_distance=2)
-    # edge_layers = [knn, spatial, sequential]
     edge_layers = [knn, sequential]
     graph = MyData(
         x=data.node_feats,
@@ -41,7 +36,7 @@ def hetero_graph_transform(data: MultiChannelData, chain: torch.Tensor, device: 
         channel_weights=data.mask,
         num_residues = chain.shape[0],
         edge_feature=None,
-        chain=chain,
+        chains=chain,
     )
     edge_list = []
     num_edges = []
@@ -61,7 +56,7 @@ def hetero_graph_transform(data: MultiChannelData, chain: torch.Tensor, device: 
     edge_list[:, 2] += offsets
 
     # 这里把edge_index和edge_relation分开装，是为了能够让处理batch的时候不要把relation也加上offset
-    graph.edge_index = edge_list[:, :2].t() # [2, |E|]
+    graph.edge_index = edge_list[:, :2].T # [2, |E|]
     graph.edge_relations = edge_list[:, 2]
     graph.edge_weights = torch.ones(len(edge_list))
     graph.num_relation = num_relation
@@ -102,113 +97,60 @@ def build_graph(
     graph.type = 'multi'
     return graph
 
-def process(item_path: Path, device: Device):
-    item_id = item_path.stem
-    affinities = affinity_table.build(item_id, device)
+processed_items = SavedSet(graph_save_dir / '.processed.txt')
+max_num_atoms = 15000
+
+def process(item_id: str, item_path: Path, device: Device):
+    affinities = affinity_table.build(item_id, device)[None]
     protein, ligand = read_item(item_path)
+    if protein.num_atoms > max_num_atoms:
+        processed_items.save(item_id)
+        return
     if '-' in item_id:
         pdb_id, chain_id = item_id.split('-')
         chain_ids = [chain_id]
     else:
         pdb_id = item_id
-        chain_ids = protein.chains.items()
+        chain_ids = list(protein.chains)
     graph = build_graph(protein, ligand, affinities, pdb_id, chain_ids, device)
-    torch.save()
+    graph.prot_id = item_id
+    torch.save(graph, graph_save_dir / f'{item_id}.pt')
+    processed_items.save(item_id)
 
-def get_argparse():
-    parser = ArgumentParser(
-        description='Main training script for Equivariant GNNs on Multitask Data.'
-    )
-    parser.add_argument('--config', type=str, default=None)
-    args = parser.parse_args()
-    if args.config != None:
-        with open(args.config, 'r') as f:
-            content = f.read()
-        config_dict = yaml.load(content, Loader=yaml.FullLoader)
-        # print('Config Dict:', config_dict)
-    else:
-        config_dict = {}
-    for k, v in config_dict.items():
-        setattr(args, k, v)
-    print('Config Dict:', args)
-    return args
+def get_items():
+    items = []
+    pdb_bind_item_ids = set()
+    for item_path in (parsed_dir / 'PDBbind').glob('*/*'):
+        item_id = item_path.stem
+        assert item_id not in pdb_bind_item_ids
+        pdb_bind_item_ids.add(item_id)
+        if item_id not in processed_items:
+            items.append((item_id, item_path))
 
-def length_check(complx, thres):
-    if len(complx['atoms_protein']['element']) > thres:
-        return False
-    else:
-        return True
-
-def correctness_check(complx):
-    #Annotation Correctness Check
-    correct = True
-    chain_ids = list(set(complx['atoms_protein']['chain']))
-    if '-' not in complx['complex_id']:
-        for i, id in enumerate(chain_ids):
-            if id in chain_uniprot_info[complx['complex_id']]:
-                uniprot_id = chain_uniprot_info[complx['complex_id']][id]
-                labels_uniprot = complx['labels']['uniprots']
-                if uniprot_id not in labels_uniprot:
-                    # print('Error, you shouldn't come here!')
-                    correct = False
-                    # print(complx['complex_id'], labels_uniprot, chain_uniprot_info[complx['complex_id']])
-    return correct
+    property_items = set()
+    for property_dir_name in ['EnzymeCommission', 'GeneOntology']:
+        for item_path in (parsed_dir / property_dir_name).iterdir():
+            item_id = item_path.stem
+            pdb_id, chain_id = item_id.split('-')
+            if pdb_id in pdb_bind_item_ids or item_id in property_items:
+                continue
+            property_items.add(item_id)
+            if item_id not in processed_items:
+                items.append((item_id, item_path))
+    return items
 
 def main():
-    global hetero, alpha_only
     torch.set_float32_matmul_precision('high')
     torch.multiprocessing.set_start_method('spawn')
-    # torch.multiprocessing.set_sharing_strategy('file_system')
-    print('start method:', torch.multiprocessing.get_start_method())
-    print('sharing strategy:', torch.multiprocessing.get_sharing_strategy())
-    args = get_argparse()
-    hetero = args.model_args['model_type'] in ['gearnet', 'hemenet', 'dymean']
-    # assert hetero
-    print(hetero)
-    alpha_only = args.alpha_only
+    num_gpus = torch.cuda.device_count()
+    items = get_items()
+    # from tqdm import tqdm
+    # for item_id, item_path in tqdm(items):
+    #     process(item_id, item_path, 2)
+    process_map(
+        process, *zip(*items), it.cycle(range(num_gpus)),
+        max_workers=4, ncols=80, total=len(items), chunksize=8,
+    )
 
-    # seed = args.seed
-    # pl.seed_everything(seed, workers=True)
-    # cache_dir = os.path.join(self.root_dir, self.cache_dir)
-    splits = [args.train_split, args.val_split, args.test_split]
-    train_cache_paths = []
-    output_roots = []
-    for split in splits:
-        train_cache_path = Path(f'datasets/MultiTask_c03_id09/{split}.cache')
-        output_root = Path(args.graph_cache_dir + f'_{split}')
-        train_cache_paths.append(train_cache_path)
-        output_roots.append(output_root)
-    threses = [15000, 15000, 15000]
-    for i, _ in enumerate(splits):
-        train_cache_path = train_cache_paths[i]
-        output_root = output_roots[i]
-        thres = threses[i]
-        print('Start loading cached Multitask files...')
-        with open(train_cache_path, 'rb') as f:
-            processed_complexes = pickle.load(f)
-        print('Complexes Before Checking:', len(processed_complexes))
-        print('Checking the dataset...')
-
-        processed_complexes = [
-            i for i in tqdm(processed_complexes)
-            if length_check(i, thres) and correctness_check(i)
-        ]
-        print('Dataset size:', len(processed_complexes))
-        # transform_func = GNNTransformMultiTask(hetero=hetero, alpha_only=args.alpha_only)
-        print('Transforming complexes...')
-        # for i in trange(len(processed_complexes), ncols=80):
-        #     processed_complexes[i] = transform_func(processed_complexes[i], 0)
-        num_gpus = torch.cuda.device_count()
-        # import resource
-        # rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-        # resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
-        processed_complexes = process_map(
-            process,
-            processed_complexes, it.cycle(range(num_gpus)), it.cycle([alpha_only]), it.cycle([hetero]),
-            max_workers=2, ncols=80, total=len(processed_complexes), chunksize=4,
-        )
-        os.makedirs(output_root, exist_ok=True)
-        for item in tqdm(processed_complexes):
-            torch.save(item.cpu(), output_root/(item['prot_id'] + '.pt'))
 if __name__ == '__main__':
     main()

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import cytoolz
 
-from gmsl.data import UniProtTable
+from gmsl.data import UniProtTable, normalize_item_id
 from gmsl.data.table import pdb_to_property_path, uniprot_to_property_path
 
 uniprot_table: UniProtTable = UniProtTable.get()
@@ -32,13 +32,14 @@ def gen_ec_labels():
     pdb_map = {}
     uniprot_map = defaultdict(set)
     for item in lines[3:]:
-        pdb_id, annotations = item.split('\t')
+        item_id, annotations = item.split('\t')
+        item_id = normalize_item_id(item_id)
         annotations = set(cytoolz.get(annotations.strip().split(','), ec_label.index))
-        if (pdb_annotations := pdb_map.get(pdb_id)) is None:
-            pdb_map[pdb_id] = list(annotations)
+        if (pdb_annotations := pdb_map.get(item_id)) is None:
+            pdb_map[item_id] = list(annotations)
         else:
             assert pdb_annotations == list(annotations)
-        if (uniprot_id := uniprot_table[pdb_id]) is None:
+        if (uniprot_id := uniprot_table[item_id]) is None:
             continue
         uniprot_map[uniprot_id] |= annotations
     for k, v in uniprot_map.items():
@@ -55,7 +56,6 @@ def gen_go_labels():
             ('cc', 9),
         ]
     }
-    # uniprot_to_go = {}
     pdb_map = {}
     uniprot_counter = Counter()
     uniprot_map_counter: dict[str, dict[str, Counter]] = defaultdict(lambda: {
@@ -63,19 +63,20 @@ def gen_go_labels():
         for task in task_labels
     })
     for line in lines[13:]:
-        pdb_id, *task_annotations = line.split('\t')
+        item_id, *task_annotations = line.split('\t')
+        item_id = normalize_item_id(item_id)
         task_annotations: dict[str, set[int]] = {
             task: set(cytoolz.get(label.split(',') if label else [], class_label.index))
             for label, (task, class_label) in zip(task_annotations, task_labels.items())
         }
-        if (pdb_annotations := pdb_map.get(pdb_id)) is None:
-            pdb_map[pdb_id] = {
+        if (pdb_annotations := pdb_map.get(item_id)) is None:
+            pdb_map[item_id] = {
                 task: list(annotations)
                 for task, annotations in task_annotations.items()
             }
         else:
             assert pdb_annotations == task_annotations
-        if (uniprot_id := uniprot_table[pdb_id]) is None:
+        if (uniprot_id := uniprot_table[item_id]) is None:
             continue
         uniprot_counter[uniprot_id] += 1
         for task, counter in uniprot_map_counter[uniprot_id].items():
