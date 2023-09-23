@@ -8,9 +8,9 @@ from torch.types import Device
 from tqdm.contrib.concurrent import process_map
 
 from gmsl.data import (
-    AffinityTable, MAX_CHANNEL, ModelData, MultiChannelData, PropertyTable, ResidueData, SavedSet
+    AffinityTable, MAX_CHANNEL, ModelData, MultiChannelData, PropertyTable, ResidueData, SavedSet,
 )
-from gmsl.data.path import PROCESSED_DIR, graph_save_dir, parsed_dir
+from gmsl.data.path import graph_save_dir, parsed_dir
 from utils import KNNEdge, MyData, SequentialEdge
 
 def read_item(item_path: Path) -> tuple[ModelData, ResidueData | None]:

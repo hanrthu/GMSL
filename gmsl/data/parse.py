@@ -174,27 +174,25 @@ class ResidueData:
             elements.append(reduce_element(atom.element))
             atom_names += (atom.name, )
 
-        default_indexes = []
+        missing_indexes = []
         assert len(coords) > 0
-        default_coord = np.mean(coords, axis=0)
         name: str = residue.get_resname()
         if name in standard_proteinogenic_amino_acids:
             assert len(elements) <= MAX_CHANNEL
-            inferred_name = side_chain_to_name.get(atom_names)
-            if inferred_name is None:
-                ref = side_chain_table[name]
-                assert set(ref).issuperset(set(atom_names))
-                atom_names = list(atom_names)
-                for i, ref_name in enumerate(ref):
-                    if i == len(atom_names) or atom_names[i] != ref_name:
-                        default_indexes.append(i)
-                        coords.insert(i, default_coord)
-                        elements.insert(i, reduce_element(ref_name[0]))
-                        atom_names.insert(i, ref_name)
-            elif inferred_name != name:
-                name = inferred_name
+            ref_names = side_chain_table[name]
+            if not set(ref_names).issuperset(set(atom_names)):
+                name = side_chain_to_name[atom_names]
+                ref_names = atom_names
+
+            atom_names = list(atom_names)
+            for i, ref_name in enumerate(ref_names):
+                if i == len(atom_names) or atom_names[i] != ref_name:
+                    missing_indexes.append(i)
+                    coords.insert(i, (0, 0, 0))
+                    elements.insert(i, 0)
+                    atom_names.insert(i, ref_name)
         mask = np.ones(len(elements), dtype=bool)
-        mask[default_indexes] = False
+        mask[missing_indexes] = False
         return name, ResidueData(False, np.array(coords), np.array(elements), mask)
 
     @property
@@ -228,6 +226,8 @@ class ChainData:
             resname, residue_data = ResidueData.from_residue(residue)
             residues.append(residue_data)
             resnames.append(reduce_resname(resname))
+        if len(residues) == 0:
+            return None
         return ChainData(residues, np.array(resnames))
 
     @property
@@ -245,9 +245,9 @@ class ModelData:
     @classmethod
     def from_model(cls, model: Model):
         return ModelData({
-            chain_id: ChainData.from_chain(chain)
+            chain_id: chain_data
             for chain_id, chain in model.child_dict.items()
-            if chain_id != ' '
+            if chain_id != ' ' and (chain_data := ChainData.from_chain(chain)) is not None
         })
 
     @property
@@ -270,7 +270,7 @@ class ModelData:
                 num_atoms = residue.num_atoms
                 pos[residue_idx, :num_atoms] = torch.as_tensor(residue.coords[:MAX_CHANNEL], device=device)
                 element[residue_idx, :num_atoms] = torch.as_tensor(residue.elements[:MAX_CHANNEL], device=device)
-                mask[residue_idx, :num_atoms] = 1
+                mask[residue_idx, :num_atoms] = torch.as_tensor(residue.mask[:MAX_CHANNEL], device=device)
                 residue_idx += 1
         return MultiChannelData(pos, element, mask, nnf.one_hot(resname, num_node_feat_classes)), chain_id
 
