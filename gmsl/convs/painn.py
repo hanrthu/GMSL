@@ -162,7 +162,8 @@ class PaiNNConv(MessagePassing):
         else:
             s_j, r_gate = wphi.split([self.si, self.vi], dim=-1)
             v_j = r_gate.unsqueeze(1) * r.unsqueeze(-1)
-
+        if torch.isnan(s_j).any() or torch.isnan(v_j).any():
+            print("Found Nan!")
         return s_j, v_j
 
 

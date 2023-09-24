@@ -17,7 +17,7 @@ from tqdm import tqdm
 from tqdm.auto import tqdm as tqdm_auto
 import yaml
 
-from utils import hetero_graph_transform
+from utils import hetero_graph_transform, prot_graph_transform
 
 chain_uniprot_info = json.loads(Path('output_info/uniprot_dict_all.json').read_bytes())
 remove_hydrogen: bool = True
@@ -34,12 +34,15 @@ def retain_alpha_carbon(item):
     # print("Retaining Alpha Carbons:", len(new_protein_df))
     return item
 
-def process(item: dict, device: Device, alpha_only=False):
+def process(item: dict, device: Device, alpha_only=False, hetero=True):
     if alpha_only:
         item = retain_alpha_carbon(item)
     ligand_df: pd.DataFrame | None = item['atoms_ligand']
     protein_df: pd.DataFrame = item['atoms_protein']
-    residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
+    if hetero:
+        residue_df = protein_df.drop_duplicates(subset=['residue'], keep='first', inplace=False).reset_index(drop=True)
+    else:
+        residue_df = protein_df
     if isinstance(ligand_df, pd.DataFrame):
         atom_df = pd.concat([protein_df, ligand_df], axis=0)
         res_ligand_df = pd.concat([residue_df, ligand_df], axis=0)
@@ -81,21 +84,31 @@ def process(item: dict, device: Device, alpha_only=False):
     num_classes = [538, 490, 1944, 321]
     total_classes = sum(num_classes)
     # 找个办法把chain和Uniprot对应起来，然后就可以查了
-    graph = hetero_graph_transform(
-        item_name=item['complex_id'],
-        atom_df=atom_df,
-        super_node=supernode,
-        protein_seq=item['protein_seq'],
-        alpha_only=alpha_only,
-        device=device,
-    )
+    if hetero:
+        graph = hetero_graph_transform(
+            item_name=item['complex_id'],
+            atom_df=atom_df,
+            super_node=supernode,
+            protein_seq=item['protein_seq'],
+            alpha_only=alpha_only,
+            device=device,
+        )
+    else:
+        graph = prot_graph_transform(
+            atom_df=atom_df,
+            cutoff=4.5,
+            max_num_neighbors=9,
+            flag=lig_flag,
+            super_node=False,
+            offset_strategy=0
+        )
 
     if lig_flag.shape[0] != graph.x.shape[0]:
         print(len(lig_flag), len(graph.x))
         print(item['complex_id'])
         raise ValueError
 
-    graph.affinities = torch.tensor([[labels['lba'], labels['ppi']]])
+    graph.affinities = torch.tensor([[labels['lba'], labels['ppi']]], dtype=torch.float32)
     ec = labels['ec']
     go = labels['go']
     graph.functions = []
@@ -243,8 +256,9 @@ def main():
     print('start method:', torch.multiprocessing.get_start_method())
     print('sharing strategy:', torch.multiprocessing.get_sharing_strategy())
     args = get_argparse()
-    hetero = args.model_args['model_type'] in ['gearnet', 'hemenet']
-    assert hetero
+    hetero = args.model_args['model_type'] in ['gearnet', 'hemenet', 'dymean']
+    # assert hetero
+    print(hetero)
     alpha_only = args.alpha_only
 
     # seed = args.seed
@@ -254,11 +268,11 @@ def main():
     train_cache_paths = []
     output_roots = []
     for split in splits:
-        train_cache_path = Path(f'./datasets/MultiTask_Resplit/{split}.cache')
+        train_cache_path = Path(f'datasets/MultiTask_c03_id09/{split}.cache')
         output_root = Path(args.graph_cache_dir + f'_{split}')
         train_cache_paths.append(train_cache_path)
         output_roots.append(output_root)
-    threses = [3000, 15000, 15000]
+    threses = [15000, 15000, 15000]
     for i, _ in enumerate(splits):
         train_cache_path = train_cache_paths[i]
         output_root = output_roots[i]
@@ -284,8 +298,8 @@ def main():
         # resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
         processed_complexes = process_map(
             process,
-            processed_complexes, it.cycle(range(num_gpus)), it.cycle([alpha_only]),
-            max_workers=2, ncols=80, total=len(processed_complexes), chunksize=16,
+            processed_complexes, it.cycle(range(num_gpus)), it.cycle([alpha_only]), it.cycle([hetero]),
+            max_workers=2, ncols=80, total=len(processed_complexes), chunksize=4,
         )
         os.makedirs(output_root, exist_ok=True)
         for item in tqdm(processed_complexes):

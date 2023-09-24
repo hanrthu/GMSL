@@ -78,6 +78,8 @@ class EQGATGNN(nn.Module):
         s, v = x
         for i in range(len(self.convs)):
             s, v = self.convs[i](x=(s, v), edge_index=edge_index, edge_attr=edge_attr)
+            if torch.isnan(s).any():
+                print("NAN")
             if self.use_norm:
                 s, v = self.norms[i](x=(s, v), batch=batch)
         return s, v

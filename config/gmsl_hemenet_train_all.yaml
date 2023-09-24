@@ -11,11 +11,12 @@ model_args:
   num_radial: 32
   learning_rate: 1.0e-4
   weight_decay: 0
-
+  task: multi
   readout: task_aware_attention
   # [weighted_feature, task_aware_attention]
   r_cutoff: 4.5
   channel_nf: 128
+  concat_hidden: True
   hidden_dims:
     - 256
     - 256
@@ -30,19 +31,16 @@ model_args:
   layer_norm: True
   batch_norm: True
 
-
-
 #Dataset Settings
-batch_size: 16
+batch_size: 8
 drop_last: False
 run_name: hemenet
-train_task: multi
 train_split: train_all
 val_split: val
 test_split: test
 alpha_only: False
 num_workers: 4
-graph_cache_dir: ./datasets/MultiTask_Resplit/graphs_new/hetero_fullatom_knn5_spatial4.5_sequential2
+graph_cache_dir: ./datasets/MultiTask_c03_id09/graphs_new/hetero_fullatom_knn7_ligand_spatial4.5_sequential2_31elements
 
 # Trainer Settings
 device:
@@ -50,11 +48,12 @@ device:
   - 1
   - 2
   - 3
-nruns: 2
-wandb: True
+nruns: 3
+wandb: False
 save_dir: hemenet
 gradient_clip_val: 10
 load_ckpt: null
 seed: 817
+precision: 16
 batch_accum_grad: 1
-max_epochs: 50
+max_epochs: 30

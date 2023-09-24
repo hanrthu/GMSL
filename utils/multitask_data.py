@@ -10,6 +10,7 @@ import re
 from typing import Dict
 # from atom3d.datasets import deserialize
 from Bio.PDB import PDBParser
+from Bio.PDB.Atom import Atom
 from openbabel import pybel
 import pandas as pd
 import torch
@@ -158,7 +159,7 @@ class CustomMultiTaskDataset(Dataset):
                         continue
                     for atom in residue:
                         # 删除氢原子
-                        atom_id = atom.get_id()                  
+                        atom_id = atom.get_id()
                         if self.remove_hydrogen and residue.get_resname() in amino_acids_dict and (atom.get_id().startswith('H') or pattern.match(atom.get_id()) != None):
                             continue
                         if residue.get_resname() in amino_acids_dict and (atom_id.startswith('H') or pattern.match(atom.get_id()) != None):
@@ -742,3 +743,5 @@ class GNNTransformEC(object):
         graph.type = self.task
         # print("Task Type:", graph.type)
         return graph
+
+

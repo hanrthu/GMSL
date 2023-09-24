@@ -1,0 +1,49 @@
+# This is the config file for EQGAT.
+
+# Lightning Model Settings
+model_args:
+  sdim: 256
+  vdim: 16
+  task: cc
+  depth: 3
+  aggr: 'mean'
+  model_type: schnet
+  num_radial: 32
+  embedding_dim: 256
+  learning_rate: 1.0e-4
+  weight_decay: 0
+  readout: vallina
+  r_cutoff: 4.5
+  concat_hidden: False
+  hidden_dims:
+    - 256
+    - 256
+    - 256
+  factor_scheduler: 0.75
+  layer_norm: True
+  batch_norm: True
+
+#Dataset Settings
+batch_size: 16
+drop_last: False
+run_name: schnet
+train_split: train_all
+val_split: val
+test_split: test
+alpha_only: Falsec
+offset_strategy: 1
+num_workers: 4
+graph_cache_dir: ./datasets/MultiTask_c03_id09/graphs_new/fullatom_knn9_spatial4.5_sequential2
+
+# Trainer Settings
+device:
+  - 3
+nruns: 3
+wandb: False
+save_dir: schnet
+gradient_clip_val: 10
+precision: 32
+batch_accum_grad: 1
+load_ckpt: null
+seed: 817
+max_epochs: 30

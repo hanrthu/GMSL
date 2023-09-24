@@ -6,3 +6,4 @@ from .egnn import EGNN, EGNN_Edge
 from .gearnet import GearNetIEConv
 from .tar import TaskAwareReadout, MultiLayerTAR
 from .hemenet import HemeNet
+from .dymean import DyMEAN

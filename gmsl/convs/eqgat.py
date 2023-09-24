@@ -166,7 +166,8 @@ class EQGATConv(MessagePassing):
 
         s = ms + s
         v = mv + v
-
+        if torch.isnan(s).any() or torch.isnan(v).any():
+            print("Found Nan!")
         return s, v
 
     def aggregate(
@@ -226,7 +227,8 @@ class EQGATConv(MessagePassing):
             nv_j = nv0_j + nv1_j + nv2_j
         else:
             nv_j = nv0_j
-
+        if torch.isnan(ns_j).any() or torch.isnan(nv_j).any():
+            print("Found Nan!")
         return ns_j, nv_j
 
 

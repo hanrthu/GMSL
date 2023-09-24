@@ -345,16 +345,12 @@ def prot_graph_transform(
     offset_strategy : int = 0,
     flag: torch.Tensor = None, 
 ) -> MyData:
-    # print("Flags: ", torch.unique(flag))
     # 判断此时的任务是单体交互还是多体交互
-
     pos = torch.as_tensor(atom_df[["x", "y", "z"]].values, dtype=init_dtype)
-    # print("Flag and pos:", flag.shape, pos.shape)
     # 找质量中心
     # element_weights = torch.as_tensor(list(map(weight_mapping, atom_df[feat_col])), dtype=torch.float32).unsqueeze(-1)
     # 几何中心
     element_weights = torch.ones(pos.shape[0]).unsqueeze(-1)
-    # print(atom_df['resname'])
     # 0:不做区分，1：Binary区分，只区分蛋白的residue和氨基酸的residue, 2:对每一种氨基酸的原子都进行区分
     if offset_strategy == 0:
         res_type = torch.zeros(pos.shape[0], dtype=torch.long)
@@ -386,7 +382,7 @@ def prot_graph_transform(
             center_index = pos.shape[0]
             for i in range(pos.shape[0]):
                 index_1 = torch.tensor(i, center_index).unsqueeze(dim=1)
-                index_2 = torch.tensor(center1_index, i).unsqueeze(dim=1)
+                index_2 = torch.tensor(center_index, i).unsqueeze(dim=1)
                 edge_index = torch.cat([edge_index, index_1, index_2], dim=1)
             pos = torch.cat([pos, torch.tensor(center)], dim=0)
             nodes_added = [element_mapping('Super')]

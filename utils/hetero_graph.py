@@ -130,7 +130,7 @@ def hetero_graph_transform(
     # print("Time Cost for Generating multichannel feature for ", item_name, " is: ", end - start)
     if len(ligand_df) != 0:
         ligand_feats = torch.as_tensor(list(map(element_mapping, ligand_df['element'])), dtype=torch.long, device=device)
-        ligand_feats += torch.max(protein_feats) + 1
+        ligand_feats += 21
         node_feats = torch.cat([protein_feats, ligand_feats], dim=-1)
     else:
         node_feats = protein_feats # Node Features 用于给Node初始化，和下述的atom type不一样
@@ -139,7 +139,7 @@ def hetero_graph_transform(
     residues = torch.as_tensor(list(map(amino_acids, protein_seq)), dtype=torch.long, device=device)
     # Three types of edges
     # 为什么 min_distance 是 4.5，不是一个整数？
-    knn = KNNEdge(k=5, min_distance=4.5, max_channel=max_channel)
+    knn = KNNEdge(k=7, min_distance=4.5, max_channel=max_channel)
     # spatial = SpatialEdge(radius=cutoff, min_distance=4.5, max_channel=max_channel)
     sequential = SequentialEdge(max_distance=2)
     # edge_layers = [knn, spatial, sequential]

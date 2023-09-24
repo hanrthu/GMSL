@@ -37,7 +37,7 @@ class SchNetGNN(nn.Module):
                     num_radial=num_radial,
                 )
             )
-            if use_norm:
+            if layer_norm:
                 self.norms.append(
                     LayerNorm(dims=(sdim, None), affine=True)
                 )

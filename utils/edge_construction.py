@@ -108,12 +108,12 @@ class KNNEdge(object):
         # 这是说在氨基酸序列里不能距离太近
         if self.min_distance > 0:
             node_in, node_out = edge_list.t()[:2]
-            mask = (node_in - node_out).abs() >= self.min_distance
+            mask = torch.logical_or(torch.logical_or((node_in - node_out).abs() >= self.min_distance, node_in >= len(graph.chain)), node_out >= len(graph.chain))
             edge_list = edge_list[mask]
         # 也不能太远
         if self.max_distance > 0:
             node_in, node_out = edge_list.t()[:2]
-            mask = (node_in - node_out).abs() <= self.max_distance
+            mask = torch.logical_or(torch.logical_or((node_in - node_out).abs() <= self.max_distance, node_in >= len(graph.chain)), node_out >= len(graph.chain))
             edge_list = edge_list[mask]
         return edge_list, 1
 

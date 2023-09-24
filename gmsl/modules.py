@@ -447,11 +447,13 @@ class LayerNorm(nn.Module):
             sout = sout * self.weight + self.bias
 
         if v is not None:
-            vmean = torch.pow(v, 2).sum(-1, keepdim=True).mean(dim=-1, keepdim=True)
+            vmean = torch.sqrt(torch.pow(v, 2).sum(-1, keepdim=True).mean(dim=-1, keepdim=True))
             vmean = scatter_mean(vmean, batch, dim=0, dim_size=batch_size)
             vmean = torch.clamp(vmean, min=self.eps)
             if vmean.device == "cpu":
                 vmean = vmean.index_select(0, batch)
+            elif len(vmean.shape) == 2:
+                vmean = torch.gather(vmean, dim=0, index=batch.view(-1, 1))
             else:
                 vmean = torch.gather(vmean, dim=0, index=batch.view(-1, 1, 1))
 

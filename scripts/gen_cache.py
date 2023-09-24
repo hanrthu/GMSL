@@ -172,7 +172,7 @@ class GenMultitask_Cache(object):
 
 def main():
     splits = ['train_all', 'train', 'val', 'test']
-    root_dir = './datasets/MultiTask_Resplit/'
+    root_dir = './datasets/MultiTask_c03_id09/'
     for split in splits:
         generator = GenMultitask_Cache(root_dir=root_dir, split=split)
         print(f'Processing {split} split...')

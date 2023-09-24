@@ -62,7 +62,7 @@ class EGCL(MessagePassing):
             v_i: Tensor, 
             v_j: Tensor,
             d: Tensor,
-        ) -> Tensor:
+        ):
         # print(s_i.shape, s_j.shape, d.shape)
         dist = torch.pow(d, 2).unsqueeze(-1)
         # 其实对于EGNN这里还有一个edge attr，但这里省略了，假设所有的edge attr都是1吧

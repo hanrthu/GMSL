@@ -1,0 +1,52 @@
+# This is the config file for DyMEAN.
+
+# Lightning Model Settings
+model_args:
+  sdim: 128
+  edge_input_dim: 128
+  vdim: 16
+  depth: 3
+  aggr: 'mean'
+  model_type: dymean
+  num_radial: 32
+  learning_rate: 1.0e-4
+  weight_decay: 0
+  task: cc
+  readout: vallina
+  # [weighted_feature, task_aware_attention]
+  r_cutoff: 4.5
+  channel_nf: 128
+  concat_hidden: False
+  hidden_dims:
+    - 128
+    - 128
+    - 128
+  embedding_dim: 128
+  channel_dim: 14
+  factor_scheduler: 0.75
+  layer_norm: True
+
+#Dataset Settings
+batch_size: 8
+drop_last: False
+run_name: dymean
+train_split: train_all
+val_split: val
+test_split: test
+alpha_only: False
+num_workers: 4
+graph_cache_dir: ./datasets/MultiTask_c03_id09/graphs_new/multichannel_fullatom_knn9_spatial4.5_sequential2
+
+# Trainer Settings
+device:
+  - 0
+  - 1
+nruns: 3
+wandb: False
+save_dir: dymean
+gradient_clip_val: 10
+load_ckpt: null
+seed: 817
+precision: 16
+batch_accum_grad: 1
+max_epochs: 30

@@ -14,17 +14,8 @@ from typing import Optional
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 
-from pytorch_lightning.callbacks import (
-    LearningRateMonitor,
-)
 from utils.task_models import MultiTaskModel, PropertyModel, AffinityModel
-from torch_geometric.loader import DataLoader
-
-from utils.multitask_data import CustomMultiTaskDataset
-# from itertools import cycle
-from torch.utils.data import Sampler
-from typing import List
-from train import LBADataLightning, choose_monitor
+from utils.datamodule import GMSLDataModule
 
 try:
     TEST_DIR = osp.join(osp.dirname(osp.realpath(__file__)), "tests")
@@ -53,7 +44,6 @@ def get_argparse():
         config_dict = {}
     for k, v in config_dict.items():
         setattr(args, k, v)
-    print("Config Dict:", args)
     return args
 
 if __name__ == "__main__":
@@ -88,18 +78,17 @@ if __name__ == "__main__":
         model_dir = osp.join(TEST_DIR, current_exp)
     if not osp.exists(model_dir):
         os.makedirs(model_dir)
-    datamodule = LBADataLightning(
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
-            drop_last=args.drop_last,
-            train_task=args.train_task,
-            train_split=args.train_split,
-            val_split=args.val_split,
-            test_split=args.test_split,
-            gearnet=True if args.model_type=='gearnet' else False,
-            alpha_only=args.alpha_only
-        )
-    
+
+    datamodule = GMSLDataModule(
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        train_split=args.train_split,
+        val_split=args.val_split,
+        test_split=args.test_split,
+        cache_dir=args.graph_cache_dir,
+        device='cuda' if device != 'cpu' else 'cpu',
+        seed=args.seed
+    )
 
     model = model_cls.load_from_checkpoint(checkpoint_path=args.model_path, 
                                             hyp_path=args.hyp_path,

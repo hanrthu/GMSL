@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from utils import singleton, unsorted_segment_sum, unsorted_segment_mean
 import math
 
+
 class MultiLayerPerceptron(nn.Module):
     """
     Multi-layer Perceptron.
@@ -67,12 +68,13 @@ class MultiLayerPerceptron(nn.Module):
 
         return hidden
 
+
 # Three types of edge features
 class IEConvLayer(nn.Module):
     eps = 1e-6
 
     def __init__(self, input_dim, hidden_dim, output_dim, edge_input_dim, kernel_hidden_dim=32,
-                dropout=0.05, dropout_before_conv=0.2, activation="relu", aggregate_func="sum"):
+                 dropout=0.05, dropout_before_conv=0.2, activation="relu", aggregate_func="sum"):
         super(IEConvLayer, self).__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
@@ -110,14 +112,14 @@ class IEConvLayer(nn.Module):
         kernel = self.kernel(edge_input).view(-1, self.hidden_dim + 1, self.hidden_dim)
         message = torch.einsum('ijk, ik->ij', kernel[:, 1:, :], message) + kernel[:, 0, :]
         return message
-    
+
     def aggregate(self, message, edge_list, edge_weights, num_node):
         # 这里的Protein类似乎是source to target的形式
         _, node_out = edge_list.t()[:2]
         edge_weight = edge_weights.unsqueeze(-1)
         # node_out是入边
         if self.aggregate_func == "sum":
-            update = scatter_add(message * edge_weight, node_out, dim=0, dim_size=num_node) 
+            update = scatter_add(message * edge_weight, node_out, dim=0, dim_size=num_node)
         else:
             raise ValueError("Unknown aggregation function `%s`" % self.aggregate_func)
         return update
@@ -133,16 +135,18 @@ class IEConvLayer(nn.Module):
         message = self.message(layer_input, edge_input, edge_list)
         update = self.aggregate(message, edge_list, edge_weights, num_node)
         update = self.dropout(self.activation(self.update_batch_norm(update)))
-        
+
         output = self.combine(input, update)
         output = self.output_batch_norm(output)
         return output
+
 
 @singleton
 class RollerPooling(nn.Module):
     '''
     Adaptive average pooling for the adaptive scaler
     '''
+
     def __init__(self, n_channel, device, dtype) -> None:
         super().__init__()
         self.n_channel = n_channel
@@ -155,7 +159,7 @@ class RollerPooling(nn.Module):
                 mat = torch.triu(ones) - torch.triu(ones, diagonal=window_size)
                 pool_matrix.append(mat / window_size)
             self.pool_matrix = torch.stack(pool_matrix)
-    
+
     def forward(self, hidden, target_size):
         '''
         :param hidden: [n_edges, n_channel]
@@ -171,8 +175,8 @@ class RollerPooling(nn.Module):
 class AM_EGCL(nn.Module):
     eps = 1e-3
 
-    def __init__(self, input_dim, output_dim, hidden_dim, num_relation, channel_dim, channel_nf, coords_agg = 'mean',
-                edge_input_dim=0, batch_norm=True, attention=False, activation=nn.SiLU(), dropout = 0.1):
+    def __init__(self, input_dim, output_dim, hidden_dim, num_relation, channel_dim, channel_nf, coords_agg='mean',
+                 edge_input_dim=0, batch_norm=True, attention=False, activation=nn.SiLU(), dropout=0.1):
         super(AM_EGCL, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -197,18 +201,18 @@ class AM_EGCL(nn.Module):
         #     self.edge_linear = nn.Linear(edge_input_dim, input_dim)
         # else:
         #     self.edge_linear = None
-        # MLP Phi_m for scalar message 
+        # MLP Phi_m for scalar message
         self.message_mlp = nn.Sequential(
             nn.Linear(input_edge + channel_nf + edge_input_dim, hidden_dim),
             self.activation,
             nn.Linear(hidden_dim, hidden_dim),
             self.activation
-            )
+        )
         if self.attention:
             self.att_mlp = nn.Sequential(
-                    nn.Linear(hidden_dim, 1),
-                    nn.Sigmoid()
-                )
+                nn.Linear(hidden_dim, 1),
+                nn.Sigmoid()
+            )
         self.dropout = nn.Dropout(dropout)
         self.w_r = nn.Parameter(torch.ones((self.num_relation, 1)))
         nn.init.kaiming_normal_(self.w_r)
@@ -220,6 +224,7 @@ class AM_EGCL(nn.Module):
             self.activation,
             layer
         )
+
     def generate_radial_feature(self, coords, edge_list, channel_attr, channel_weights: torch.Tensor):
         '''
             Generate radial feature, including scalar and coordinate feature.
@@ -231,30 +236,31 @@ class AM_EGCL(nn.Module):
             edge_attr: [|E|, edge_dim]
             node_attr: [N, node_feature]
         '''
-        source, target = edge_list[:, 0], edge_list[:, 1] # j, i
+        source, target = edge_list[:, 0], edge_list[:, 1]  # j, i
         channel_weights = channel_weights.type_as(coords)
-        coord_msg = torch.norm(coords[target][:, :, None, :] - coords[source][:, None, :, :], dim=-1, keepdim=False) # [|E|, n_channel, n_channel]
+        coord_msg = torch.norm(coords[target][:, :, None, :] - coords[source][:, None, :, :], dim=-1,
+                               keepdim=False)  # [|E|, n_channel, n_channel]
         coord_msg = coord_msg / (torch.max(coord_msg) + self.eps)
-        coord_msg = coord_msg * torch.bmm(channel_weights[target][:, :, None], channel_weights[source][:, None, :]) # [|E|, n_channel, n_channel]
+        coord_msg = coord_msg * torch.bmm(channel_weights[target][:, :, None],
+                                          channel_weights[source][:, None, :])  # [|E|, n_channel, n_channel]
         radial = torch.bmm(channel_attr[target].transpose(-1, -2), coord_msg)
-        radial = torch.bmm(radial, channel_attr[source]) # [|E|, channel_nf, channel_nf]
-        radial = radial.reshape(radial.shape[0], -1) # [|E|, channel_nf * channel_nf]
+        radial = torch.bmm(radial, channel_attr[source])  # [|E|, channel_nf, channel_nf]
+        radial = radial.reshape(radial.shape[0], -1)  # [|E|, channel_nf * channel_nf]
         radial_norm = torch.norm(radial, dim=-1, keepdim=True) + self.eps
         # x_tmp = self.radial_linear(radial)
         # norm_tmp = radial_norm
         if torch.isinf(radial).any() or torch.isnan(radial).any():
             print("Here is nan!")
-        radial = self.radial_linear(radial / radial_norm) #[|E|, channel_nf]
-        
-        channel_mask = (channel_weights != 0) # [N, n_channel]
-        channel_sum = channel_mask.sum(-1) # [N]
-        pooled_col_coord = (coords[source] * channel_mask[source][:, :, None]).sum(1) # [|E|, d]
+        radial = self.radial_linear(radial / radial_norm)  # [|E|, channel_nf]
+
+        channel_mask = (channel_weights != 0)  # [N, n_channel]
+        channel_sum = channel_mask.sum(-1)  # [N]
+        pooled_col_coord = (coords[source] * channel_mask[source][:, :, None]).sum(1)  # [|E|, d]
         pooled_col_coord = pooled_col_coord / (channel_sum[source][:, None] + self.eps)
-        coord_diff = coords[target] - pooled_col_coord[:, None, :] # [|E|, n_channel, d]
+        coord_diff = coords[target] - pooled_col_coord[:, None, :]  # [|E|, n_channel, d]
 
         return radial, coord_diff
-        
-    
+
     def message(self, h, edge_list, coords, channel_attr, channel_weights, edge_attr=None, node_attr=None):
         """
             This is the heterogeneous graph message calculation function
@@ -266,23 +272,23 @@ class AM_EGCL(nn.Module):
             edge_attr: [|E|, edge_dim]
             node_attr: [N, node_feature]
         """
-        radial, coord_diff= self.generate_radial_feature(coords, edge_list, channel_attr, channel_weights)
+        radial, coord_diff = self.generate_radial_feature(coords, edge_list, channel_attr, channel_weights)
         # Calculate scalar message mij
         if torch.isnan(radial).any():
             print("Radial Nan")
         if torch.isnan(coord_diff).any():
             print("Coord Nan")
-        source, target = edge_list[:, 0], edge_list[:, 1] # j, i
+        source, target = edge_list[:, 0], edge_list[:, 1]  # j, i
         # max_target = torch.max(target)
         # max_source = torch.max(source)
         # max_nodes = h.shape[0]
-        node_s = h[source] 
+        node_s = h[source]
         node_t = h[target]
         if edge_attr is not None:
             node_message = self.message_mlp(torch.cat([node_t, node_s, radial, edge_attr], dim=-1))
         else:
             node_message = self.message_mlp(torch.cat([node_t, node_s, radial], dim=-1))
-        node_message = self.dropout(node_message) # [|E|, hidden_dim]
+        node_message = self.dropout(node_message)  # [|E|, hidden_dim]
         if self.attention:
             node_message = node_message * self.att_mlp(node_message)
         # TODO: Experiment if this is necessary
@@ -291,15 +297,15 @@ class AM_EGCL(nn.Module):
         #     node_message += self.edge_linear(edge_attr)
         # Calculate coordinate message xij
         n_channel = coords.shape[1]
-        edge_feat = self.coord_mlp(node_message) # [|E|, n_channel]
+        edge_feat = self.coord_mlp(node_message)  # [|E|, n_channel]
         channel_sum = (channel_weights != 0).sum(-1)
-        
+
         pooled_edge_feat = RollerPooling(n_channel, edge_feat.device, edge_feat.dtype)(edge_feat, channel_sum[target])
-        coord_message = coord_diff * pooled_edge_feat # [n_edge, n_channel, d]
+        coord_message = coord_diff * pooled_edge_feat  # [n_edge, n_channel, d]
         if torch.isnan(node_message).any() or torch.isnan(coord_message).any():
             print("Wrong output")
         return node_message, coord_message
-    
+
     def aggregate(self, node_message, coord_message, edge_list, edge_weights, num_nodes):
         '''
             This is the heterogeneous graph message aggregation function
@@ -310,13 +316,13 @@ class AM_EGCL(nn.Module):
             num_nodes: int
         '''
         # print("Graph Num Relation:", graph.num_relation)
-        _, target, relation = edge_list[:, 0], edge_list[:, 1], edge_list[:, 2] # j, i
+        _, target, relation = edge_list[:, 0], edge_list[:, 1], edge_list[:, 2]  # j, i
 
         # assert num_relation[0] == self.num_relation
         # Calculate scalar aggregation
-        #乘起来是为了把num_relation种边给分开，然后就可以异质图分别求sumup了
+        # 乘起来是为了把num_relation种边给分开，然后就可以异质图分别求sumup了
         node_out = target * self.num_relation + relation
-        #在这里edgeweight全是1
+        # 在这里edgeweight全是1
         # print("Graph Edge Weights:", graph.edge_weights.shape)
         edge_weight = edge_weights.unsqueeze(-1)
         # print("Num Node:", graph.num_nodes, len(graph.x))
@@ -325,14 +331,16 @@ class AM_EGCL(nn.Module):
         node_agg = update.view(num_nodes, self.num_relation * self.hidden_dim)
         # Calculate coordinate aggregation
         if self.coords_agg == 'sum':
-            coord_agg = unsorted_segment_sum(self.w_r[relation].unsqueeze(-1) * coord_message, target, num_segments=num_nodes)
+            coord_agg = unsorted_segment_sum(self.w_r[relation].unsqueeze(-1) * coord_message, target,
+                                             num_segments=num_nodes)
         elif self.coords_agg == 'mean':
-            coord_agg = unsorted_segment_mean(self.w_r[relation].unsqueeze(-1) * coord_message, target, num_segments=num_nodes)
+            coord_agg = unsorted_segment_mean(self.w_r[relation].unsqueeze(-1) * coord_message, target,
+                                              num_segments=num_nodes)
         else:
             raise Exception('Please choose the correct aggregation method!')
-        
-        return node_agg, coord_agg 
-    
+
+        return node_agg, coord_agg
+
     def combine(self, h, coords, node_agg, coord_agg, relation):
         '''
             This is the heterogeneous graph message update function
@@ -349,8 +357,8 @@ class AM_EGCL(nn.Module):
         node_output = h + node_output
         coord_output = coords + coord_agg
         return node_output, coord_output
-    
-    def forward(self, h, edge_list, coords, channel_attr, channel_weights, 
+
+    def forward(self, h, edge_list, coords, channel_attr, channel_weights,
                 edge_weights, edge_attr=None, node_attr=None):
         '''
             h: input feature, [N, input_dim]
@@ -364,7 +372,8 @@ class AM_EGCL(nn.Module):
         '''
         num_nodes = h.shape[0]
         relation = edge_list[:, 2]
-        node_message, coord_message = self.message(h, edge_list, coords, channel_attr, channel_weights, edge_attr, node_attr)
+        node_message, coord_message = self.message(h, edge_list, coords, channel_attr, channel_weights, edge_attr,
+                                                   node_attr)
         if torch.isnan(node_message).any() or torch.isnan(coord_message).any():
             print("Wrong output")
         node_agg, coord_agg = self.aggregate(node_message, coord_message, edge_list, edge_weights, num_nodes)

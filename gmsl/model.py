@@ -8,9 +8,8 @@ from torch_geometric.nn.inits import reset
 from typing import Optional
 import inspect
 
-from gmsl.modules import DenseLayer, GatedEquivBlock, LayerNorm, GatedEquivBlockTP
-from gmsl.basemodels import EQGATGNN, PaiNNGNN, SchNetGNN, GVPNetwork, \
-                            EGNN, EGNN_Edge, GearNetIEConv, MultiLayerTAR, HemeNet
+from gmsl.modules import DenseLayer, GatedEquivBlock, LayerNorm
+from gmsl.basemodels import MultiLayerTAR
 
 # SEGNN
 from gmsl.segnn.segnn import SEGNN
@@ -36,7 +35,7 @@ class BaseModel(nn.Module):
         aggr: str = "mean",
         graph_pooling: str = "mean",
         no_feat_attn: bool = False,
-        task = 'multitask',
+        task = 'multi',
         readout = 'vallina',
         batch_norm = True,
         layer_norm = True,
@@ -44,10 +43,10 @@ class BaseModel(nn.Module):
         embedding_dim = 512,
         **kwargs
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "egnn", "egnn_edge", "gearnet", "hemenet"]:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "egnn", "egnn_edge", "gearnet", "hemenet", "dymean"]:
             print("Wrong select model type")
             print("Exiting code")
-            exit()
+            raise ValueError
 
         super(BaseModel, self).__init__()
         self.sdim = sdim
@@ -58,13 +57,12 @@ class BaseModel(nn.Module):
         self.model_type = model_type.lower()
         self.out_units = out_units
         self.task = task
-        input_dim = sdim
 
         local_args = locals()
         register = Register()
         self.init_embedding = nn.Embedding(num_embeddings=NUM_ELEMENTS, embedding_dim=embedding_dim)
         # 14 is the n_channel size
-        self.channel_attr = nn.Embedding(num_embeddings=MAX_CHANNEL, embedding_dim=sdim) if self.model_type == 'hemenet' else None
+        self.channel_attr = nn.Embedding(num_embeddings=MAX_CHANNEL, embedding_dim=sdim) if self.model_type in ['hemenet', 'dymean'] else None
         self.edge_attr = nn.Embedding(num_embeddings=kwargs['num_relation'], embedding_dim=sdim) if self.model_type=='hemenet' else None
         gnn_cls = register[self.model_type]
 
@@ -94,7 +92,7 @@ class BaseModel(nn.Module):
         elif self.model_type == 'gearnet':
             self.post_lin = None
             self.post_norm = None
-        elif self.model_type == 'hemenet':
+        elif self.model_type in ['hemenet', 'dymean']:
             self.post_norm = None
             self.post_lin = None
             # self.coord_lin = DenseLayer(MAX_CHANNEL*MAX_CHANNEL , sdim, bias=False)
@@ -125,7 +123,6 @@ class BaseModel(nn.Module):
                 nn.Dropout(dropout),
                 DenseLayer(sdim, class_num, bias=True),
             ))
-
         self.readout = readout
         print("Readout Strategy:", readout)
         if readout == 'task_aware_attention':
@@ -149,8 +146,11 @@ class BaseModel(nn.Module):
         edge_index, d, lig_flag, chains = data.edge_index, data.edge_weights, data.lig_flag, data.chains
         pos = pos.squeeze()
         # 暂时转一下，之后预处理可以直接存成序号
-        s = torch.argmax(s, dim=-1)
-        s = self.init_embedding(s.int())
+        if len(s.shape) == 2:
+            s = torch.argmax(s, dim=-1)
+            s = self.init_embedding(s.int())
+        else:
+            s = self.init_embedding(s.int())
         row, col = edge_index
         rel_pos = pos[row] - pos[col]
         rel_pos = F.normalize(rel_pos, dim=-1, eps=1e-6)
@@ -160,11 +160,15 @@ class BaseModel(nn.Module):
             v = torch.zeros(size=[s.size(0), 3, self.vdim], device=s.device)
             s, v = self.gnn((s, v), edge_index=edge_index, edge_attr=edge_attr, batch=batch)
             if self.use_norm:
-                s, v = self.post_norm(x=(s, v), batch=batch)
+                s, _ = self.post_norm(x=(s, None), batch=batch)
             s, _ = self.post_lin(x=(s, v))
+            if torch.isnan(s).any():
+                print("Found Nan!")
         elif self.model_type == "egnn":
             v = pos
-            s, v = self.gnn((s, v), edge_index=edge_index, edge_attr=edge_attr, batch=batch)
+            s, coords = self.gnn((s, v), edge_index=edge_index, edge_attr=edge_attr, batch=batch)
+            if self.use_norm:
+                s, v = self.post_norm(x=(s,v), batch=batch)
             s = self.post_lin(s)
         elif self.model_type == 'gearnet':
             graph = data
@@ -179,16 +183,20 @@ class BaseModel(nn.Module):
             s, coords = self.gnn(s, edge_list, pos, channel_attr, channel_weights, data.edge_weights, edge_attr)
             # dist_info = torch.norm(coords[:, :, None] - coords[:, None, :], dim=-1, keepdim=False).view(coords.shape[0], -1)
             # s = s + self.coord_lin(dist_info)
-        else:
+        elif self.model_type == 'dymean':
+            edge_list = data.edge_index.t()
+            channel_attr = self.channel_attr(data.residue_elements.long())
+            s, coords = self.gnn(s, edge_list, pos, channel_attr, channel_weights, data.edge_weights)
+        else: # schnet
             s = self.gnn(x=s, edge_index=edge_index, edge_attr=d, batch=batch)
             if self.use_norm:
                 s, _ = self.post_norm(x=(s, None), batch=batch)
             s = self.post_lin(s)
 
         if self.readout == 'vallina':
-            y_pred = scatter(s, index=batch, dim=0, reduce=self.graph_pooling)
+            y_pred = scatter(s, index=batch, dim=0, reduce=self.graph_pooling).unsqueeze(0).repeat_interleave(len(self.affinity_heads), dim=0)
             # 将链从1编号改为从0编号
-            chain_pred = scatter(s[(lig_flag!=0).squeeze(), :], index=(chains-1).squeeze(), dim=0, reduce=self.graph_pooling)
+            chain_pred = scatter(s[(lig_flag!=0).squeeze(), :], index=(chains-1).squeeze(), dim=0, reduce=self.graph_pooling).unsqueeze(0).repeat_interleave(len(self.property_heads), dim=0)
         elif self.readout == 'weighted_feature':
             y_pred = scatter(s * self.affinity_weights, index=batch, dim=1, reduce=self.graph_pooling)
             chain_pred = scatter(s[(lig_flag!=0).squeeze(), :] * self.property_weights, index=(chains-1).squeeze(), dim=1, reduce=self.graph_pooling)
@@ -199,7 +207,8 @@ class BaseModel(nn.Module):
             chain_pred = self.chain_readout(self.property_prompts, proteins, (chains-1).squeeze())
         else:
             raise NotImplementedError
-
+        if torch.isnan(y_pred).any() or torch.isnan(chain_pred).any():
+            print("Found Nan!")
         if self.task == 'multi':
             affinity_pred = [affinity_head(y_pred[i].squeeze()) for i, affinity_head in enumerate(self.affinity_heads)]
             property_pred = [property_head(chain_pred[i].squeeze()) for i, property_head in
