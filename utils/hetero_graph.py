@@ -107,8 +107,8 @@ def hetero_graph_transform(
     A function that can generate graph with different kinds of edges
     """
     # 目前全原子的情况仅对坐标做multichannel的适配, 氨基酸仍然用一个feature来表示
-    protein_df: pd.DataFrame = atom_df[atom_df.resname != "LIG"].reset_index(drop=True)
-    ligand_df: pd.DataFrame = atom_df[atom_df.resname == "LIG"].reset_index(drop=True)
+    protein_df: pd.DataFrame = atom_df[atom_df['resname'] != "LIG"].reset_index(drop=True)
+    ligand_df: pd.DataFrame = atom_df[atom_df['resname'] == "LIG"].reset_index(drop=True)
     # start = datetime.now()
     if not alpha_only:
         pos, channel_weights, residue_elements, chain = gen_multi_channel_coords(protein_df, ligand_df, protein_seq, device) # [N, n_channel, d], [N, n_channel], [N, n_channel]

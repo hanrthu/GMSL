@@ -3,7 +3,7 @@ from pathlib import Path
 import httpx
 from tqdm.contrib.concurrent import process_map
 
-from gmsl.datamodule import get_pdb_ids
+from gmsl.data import get_pdb_ids
 
 save_dir = Path('datasets') / 'fasta'
 
