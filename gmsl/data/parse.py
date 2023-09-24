@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Self
@@ -8,11 +9,9 @@ from Bio.PDB.Chain import Chain
 from Bio.PDB.Model import Model
 from Bio.PDB.Residue import Residue
 from atom3d.util.formats import atomic_number
-import cytoolz
 import numpy as np
 from openbabel import pybel
 import torch
-from torch.types import Device
 from torch.nn import functional as nnf
 
 from gmsl.data.path import PathLike
@@ -286,7 +285,7 @@ class ModelData:
     def device(self):
         return next(iter(self.chains.values())).device
 
-    def to_multi_channel(self, chain_ids: list[str] | None = None):
+    def to_multi_channel(self, chain_ids: Sequence[str] | None = None):
         chains = self.chains if chain_ids is None else {chain_id: self.chains[chain_id] for chain_id in chain_ids}
         num_residues = sum(len(chain.residues) for chain in chains.values())
         pos = torch.zeros(num_residues, MAX_CHANNEL, 3, device=self.device)

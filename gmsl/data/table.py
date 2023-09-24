@@ -1,11 +1,9 @@
 from functools import cache
 import json
-from typing import TypeAlias
 
 import pandas as pd
 import torch
 from torch.types import Device
-from torch.nn import functional as nnf
 
 from .path import PROCESSED_DIR
 
@@ -53,7 +51,7 @@ class PropertyTable:
         self.pdb_map: dict[str, dict[str, list[int]]] = json.loads(pdb_to_property_path.read_bytes())
         self.uniprot_map: dict[str, dict[str, list[int]]] = json.loads(uniprot_to_property_path.read_bytes())
 
-    def build(self, pdb_id: str, chain_id: str, device: Device = None):
+    def build(self, pdb_id: str, chain_id: str, device: Device):
         pdb_id = pdb_id.lower()
         item_id = f'{pdb_id}-{chain_id}'
         if (pdb_property := self.pdb_map.get(item_id)) is None:

@@ -1,9 +1,10 @@
 from collections.abc import Sequence
 import itertools as it
+from multiprocessing.managers import AcquirerProxy, DictProxy, ListProxy
+import os
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
+from torch.multiprocessing import Manager
 import torch
 from torch.types import Device
 from tqdm.contrib.concurrent import process_map
@@ -66,9 +67,9 @@ def hetero_graph_transform(data: MultiChannelData, chain: torch.Tensor):
 property_table: PropertyTable = PropertyTable.get()
 affinity_table: AffinityTable = AffinityTable.get()
 
-def build_property(pdb_id: str, chain_ids: Sequence[str]):
+def build_property(pdb_id: str, chain_ids: Sequence[str], device: Device):
     properties, valid_masks = zip(*(
-        property_table.build(pdb_id, chain_id)
+        property_table.build(pdb_id, chain_id, device)
         for chain_id in chain_ids
     ))
     return torch.stack(properties), torch.stack(valid_masks)
@@ -93,7 +94,7 @@ def build_graph(
     graph.chains = chain
     graph.lig_flag = lig_flag
     graph.affinities = affinities
-    graph.functions, graph.valid_masks = build_property(pdb_id, chain_ids)
+    graph.functions, graph.valid_masks = build_property(pdb_id, chain_ids, protein.device)
     graph.type = 'multi'
     return graph
 
@@ -102,8 +103,19 @@ unmatched_chains_save_path = graph_save_dir / '.unmatched-chains.txt'
 max_num_atoms = 15000
 max_aug = 5
 
-def process(item_id: str, item_path: Path, device: Device):
-    device = torch.device(device)
+num_devices = torch.cuda.device_count()
+
+def get_device(pid_to_device_id: DictProxy, device_ref_count: ListProxy, lock: AcquirerProxy) -> torch.device:
+    pid = os.getpid()
+    if (device_id := pid_to_device_id.get(pid)) is None:
+        with lock:
+            device_id = min(range(num_devices), key=lambda i: device_ref_count[i])
+            pid_to_device_id[pid] = device_id
+            device_ref_count[device_id] += 1
+    return torch.device(device_id)
+
+def process(item_id: str, item_path: Path, mp_args: tuple):
+    device = get_device(*mp_args)
     affinities = affinity_table.build(item_id, device)[None]
     protein, ligand = read_item(item_path, device)
     if protein.num_atoms > max_num_atoms:
@@ -137,23 +149,24 @@ def process(item_id: str, item_path: Path, device: Device):
 
             def dfs(chain_idx: int, chain_ids: list[str], num_atoms: int):
                 nonlocal aug_cnt
-                if num_atoms > max_num_atoms or aug_cnt == max_aug:
+                if aug_cnt == max_aug:
                     return
-                if chain_idx == len(chain_dis):
+                if chain_idx == len(chain_dis) or num_atoms > max_num_atoms:
                     if len(chain_ids) > 0:
                         aug_cnt += 1
                         aug_graph = build_graph(full_protein, None, affinities, pdb_id, [chain_id] + chain_ids)
                         aug_item_id = f"{pdb_id}-{chain_id}+{','.join(chain_ids)}"
                         graph.prot_id = item_id
                         torch.save(aug_graph, graph_save_dir / f"{aug_item_id}.pt")
+                    return
                 else:
                     cur_chain_id = sorted_chain_ids[chain_idx]
                     dfs(chain_idx + 1, chain_ids + [sorted_chain_ids[chain_idx]], num_atoms + full_protein.chains[cur_chain_id].num_atoms)
-                    dfs(chain_idx + 1, chain_ids, num_atoms + full_protein.chains[cur_chain_id].num_atoms)
+                    dfs(chain_idx + 1, chain_ids, num_atoms)
+
             dfs(0, [], chain.num_atoms)
         else:
             append_ln(unmatched_chains_save_path, str(item_path))
-
     processed_items.save(item_id)
 
 def get_items():
@@ -179,17 +192,22 @@ def get_items():
     return items
 
 def main():
-    torch.set_float32_matmul_precision('high')
     torch.multiprocessing.set_start_method('spawn')
-    num_gpus = torch.cuda.device_count()
+    torch.set_float32_matmul_precision('high')
     items = get_items()
-    # from tqdm import tqdm
-    # for item_id, item_path in tqdm(items):
-    #     process(item_id, item_path, 2)
-    process_map(
-        process, *zip(*items), it.cycle(range(num_gpus)),
-        max_workers=4, ncols=80, total=len(items), chunksize=8,
-    )
+    with Manager() as manager:
+        pid_to_device_id = manager.dict()
+        device_ref_count = manager.list([0 for _ in range(num_devices)])
+        lock = manager.Lock()
+        # from tqdm import tqdm
+        # for item_id, item in tqdm(items):
+        #     process(item_id, item, (pid_to_device_id, device_ref_count, lock))
+        processes_per_device = 3
+        process_map(
+            process, *zip(*items),
+            it.repeat((pid_to_device_id, device_ref_count, lock)),
+            max_workers=num_devices * processes_per_device, ncols=80, total=len(items), chunksize=1,
+        )
 
 if __name__ == '__main__':
     main()
