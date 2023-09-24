@@ -8,6 +8,7 @@ from Bio.PDB.Chain import Chain
 from Bio.PDB.Model import Model
 from Bio.PDB.Residue import Residue
 from atom3d.util.formats import atomic_number
+import cytoolz
 import numpy as np
 from openbabel import pybel
 import torch
@@ -154,15 +155,27 @@ class MultiChannelData:
             torch.cat([a.node_feats, b.node_feats]),
         )
 
+    @property
+    def device(self):
+        return self.element.device
+
 @dataclass
 class ResidueData:
     is_ligand: bool
-    coords: np.ndarray
-    elements: np.ndarray
-    mask: np.ndarray
+    coords: torch.Tensor
+    elements: torch.Tensor
+    mask: torch.Tensor
+
+    def __eq__(self, other: Self):
+        return self.is_ligand == other.is_ligand \
+            and self.num_atoms == other.num_atoms \
+            and torch.allclose(self.coords, other.coords) \
+            and torch.equal(self.elements, other.elements) \
+            and torch.equal(self.mask, other.mask)
 
     @classmethod
     def from_residue(cls, residue: Residue):
+        name: str = residue.get_resname()
         coords = []
         elements = []
         atom_names = ()
@@ -176,7 +189,6 @@ class ResidueData:
 
         missing_indexes = []
         assert len(coords) > 0
-        name: str = residue.get_resname()
         if name in standard_proteinogenic_amino_acids:
             assert len(elements) <= MAX_CHANNEL
             ref_names = side_chain_table[name]
@@ -191,29 +203,38 @@ class ResidueData:
                     coords.insert(i, (0, 0, 0))
                     elements.insert(i, 0)
                     atom_names.insert(i, ref_name)
-        mask = np.ones(len(elements), dtype=bool)
+        mask = torch.ones(len(elements), dtype=torch.bool)
         mask[missing_indexes] = False
-        return name, ResidueData(False, np.array(coords), np.array(elements), mask)
+        return name, ResidueData(False, torch.from_numpy(np.array(coords, dtype=np.float32)), torch.tensor(elements), mask)
 
     @property
     def num_atoms(self):
+        # including missing atoms
         return self.elements.shape[0]
 
-    def to_multi_channel(self, device: Device = None):
+    @property
+    def device(self):
+        return self.elements.device
+
+    @property
+    def masked_coords(self):
+        return self.coords[self.mask]
+
+    def to_multi_channel(self):
         assert self.is_ligand
         num_atoms = self.num_atoms
-        pos = torch.zeros(num_atoms, MAX_CHANNEL, 3, device=device)
-        pos[:, 0] = torch.as_tensor(self.coords, device=device)
-        element = torch.zeros(num_atoms, MAX_CHANNEL, dtype=torch.long, device=device)
-        element[:, 0] = torch.as_tensor(self.elements, device=device)
-        mask = torch.zeros(num_atoms, MAX_CHANNEL, dtype=torch.long, device=device)
+        pos = torch.zeros(num_atoms, MAX_CHANNEL, 3, device=self.device)
+        pos[:, 0] = self.coords
+        element = torch.zeros(num_atoms, MAX_CHANNEL, dtype=torch.long, device=self.device)
+        element[:, 0] = self.elements
+        mask = torch.zeros(num_atoms, MAX_CHANNEL, dtype=torch.long, device=self.device)
         mask[:, 0] = 1
         return MultiChannelData(pos, mask, element, nnf.one_hot(element[:, 0] + num_reduced_resnames, num_node_feat_classes))
 
 @dataclass
 class ChainData:
     residues: list[ResidueData]
-    resname: np.ndarray
+    resname: torch.Tensor
 
     @classmethod
     def from_chain(cls, chain: Chain):
@@ -228,7 +249,7 @@ class ChainData:
             resnames.append(reduce_resname(resname))
         if len(residues) == 0:
             return None
-        return ChainData(residues, np.array(resnames))
+        return ChainData(residues, torch.tensor(resnames))
 
     @property
     def num_residues(self):
@@ -237,6 +258,13 @@ class ChainData:
     @property
     def num_atoms(self):
         return sum(residue.num_atoms for residue in self.residues)
+
+    @property
+    def device(self):
+        return self.resname.device
+
+    def __eq__(self, other: Self):
+        return torch.equal(self.resname, other.resname) and self.residues == other.residues
 
 @dataclass
 class ModelData:
@@ -254,23 +282,28 @@ class ModelData:
     def num_atoms(self):
         return sum(chain.num_atoms for chain in self.chains.values())
 
-    def to_multi_channel(self, device: Device):
-        num_residues = sum(len(chain.residues) for chain in self.chains.values())
-        pos = torch.zeros(num_residues, MAX_CHANNEL, 3, device=device)
-        element = torch.zeros(num_residues, MAX_CHANNEL, dtype=torch.long, device=device)
-        mask = torch.zeros(num_residues, MAX_CHANNEL, dtype=torch.long, device=device)
-        chain_id = torch.empty(num_residues, dtype=torch.long, device=device)
-        resname = torch.empty(num_residues, dtype=torch.long, device=device)
+    @property
+    def device(self):
+        return next(iter(self.chains.values())).device
+
+    def to_multi_channel(self, chain_ids: list[str] | None = None):
+        chains = self.chains if chain_ids is None else {chain_id: self.chains[chain_id] for chain_id in chain_ids}
+        num_residues = sum(len(chain.residues) for chain in chains.values())
+        pos = torch.zeros(num_residues, MAX_CHANNEL, 3, device=self.device)
+        element = torch.zeros(num_residues, MAX_CHANNEL, dtype=torch.long, device=self.device)
+        mask = torch.zeros(num_residues, MAX_CHANNEL, dtype=torch.long, device=self.device)
+        chain_id = torch.empty(num_residues, dtype=torch.long, device=self.device)
+        resname = torch.empty(num_residues, dtype=torch.long, device=self.device)
 
         residue_idx = 0
-        for chain_idx, chain in enumerate(self.chains.values()):
+        for chain_idx, chain in enumerate(chains.values()):
             chain_id[residue_idx:residue_idx + chain.num_residues] = chain_idx
-            resname[residue_idx:residue_idx + chain.num_residues] = torch.as_tensor(chain.resname, device=device)
+            resname[residue_idx:residue_idx + chain.num_residues] = chain.resname
             for residue in chain.residues:
                 num_atoms = residue.num_atoms
-                pos[residue_idx, :num_atoms] = torch.as_tensor(residue.coords[:MAX_CHANNEL], device=device)
-                element[residue_idx, :num_atoms] = torch.as_tensor(residue.elements[:MAX_CHANNEL], device=device)
-                mask[residue_idx, :num_atoms] = torch.as_tensor(residue.mask[:MAX_CHANNEL], device=device)
+                pos[residue_idx, :num_atoms] = residue.coords[:MAX_CHANNEL]
+                element[residue_idx, :num_atoms] = residue.elements[:MAX_CHANNEL]
+                mask[residue_idx, :num_atoms] = residue.mask[:MAX_CHANNEL]
                 residue_idx += 1
         return MultiChannelData(pos, element, mask, nnf.one_hot(resname, num_node_feat_classes)), chain_id
 
@@ -284,4 +317,4 @@ def parse_ligand(path: PathLike):
             continue
         coords.append(atom.coords)
         elements.append(reduce_element(element))
-    return ResidueData(True, np.array(coords), np.array(elements), np.ones(len(elements), dtype=bool))
+    return ResidueData(True, torch.from_numpy(np.array(coords)), torch.tensor(elements), torch.ones(len(elements), dtype=torch.bool))

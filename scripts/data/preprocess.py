@@ -2,29 +2,30 @@ from collections.abc import Sequence
 import itertools as it
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import torch
 from torch.types import Device
 from tqdm.contrib.concurrent import process_map
 
 from gmsl.data import (
-    AffinityTable, MAX_CHANNEL, ModelData, MultiChannelData, PropertyTable, ResidueData, SavedSet,
+    AffinityTable, MAX_CHANNEL, ModelData, MultiChannelData, PropertyTable, ResidueData, SavedSet, append_ln,
 )
 from gmsl.data.path import graph_save_dir, parsed_dir
 from utils import KNNEdge, MyData, SequentialEdge
 
-def read_item(item_path: Path) -> tuple[ModelData, ResidueData | None]:
+def read_item(item_path: Path, device: torch.device) -> tuple[ModelData, ResidueData | None]:
     if item_path.resolve().is_dir():
-        model = pd.read_pickle(item_path / 'protein.pkl')
-        ligand = pd.read_pickle(item_path / 'ligand.pkl')
+        model = torch.load(item_path / 'protein.pt', device)
+        ligand = torch.load(item_path / 'ligand.pt', device)
     else:
-        model = pd.read_pickle(item_path)
+        model = torch.load(item_path, device)
         ligand = None
     return model, ligand
 
 k_KNN = 7
 
-def hetero_graph_transform(data: MultiChannelData, chain: torch.Tensor, device: Device = None):
+def hetero_graph_transform(data: MultiChannelData, chain: torch.Tensor):
     knn = KNNEdge(k=k_KNN, min_distance=5, max_channel=MAX_CHANNEL)
     sequential = SequentialEdge(max_distance=2)
     edge_layers = [knn, sequential]
@@ -48,9 +49,9 @@ def hetero_graph_transform(data: MultiChannelData, chain: torch.Tensor, device: 
         num_relations.append(num_relation)
 
     edge_list = torch.cat(edge_list)
-    num_edges = torch.as_tensor(num_edges, device=device)
+    num_edges = torch.as_tensor(num_edges, device=data.device)
 
-    num_relations = torch.as_tensor(num_relations, device=device)
+    num_relations = torch.as_tensor(num_relations, device=data.device)
     num_relation = num_relations.sum()
     offsets = (num_relations.cumsum(0) - num_relations).repeat_interleave(num_edges)
     edge_list[:, 2] += offsets
@@ -78,18 +79,17 @@ def build_graph(
     affinities: torch.Tensor,
     pdb_id: str,
     chain_ids: Sequence[str],
-    device: Device,
 ) -> MyData:
-    protein_data, chain = protein.to_multi_channel(device)
+    protein_data, chain = protein.to_multi_channel(chain_ids)
     chain += 1
     if ligand is None:
         multi_channel_data = protein_data
         lig_flag = chain
     else:
-        ligand_data = ligand.to_multi_channel(device)
+        ligand_data = ligand.to_multi_channel()
         multi_channel_data = MultiChannelData.merge(protein_data, ligand_data)
         lig_flag = torch.cat([chain, chain.new_zeros(ligand_data.n)])
-    graph = hetero_graph_transform(multi_channel_data, chain, device)
+    graph = hetero_graph_transform(multi_channel_data, chain)
     graph.chains = chain
     graph.lig_flag = lig_flag
     graph.affinities = affinities
@@ -98,23 +98,62 @@ def build_graph(
     return graph
 
 processed_items = SavedSet(graph_save_dir / '.processed.txt')
+unmatched_chains_save_path = graph_save_dir / '.unmatched-chains.txt'
 max_num_atoms = 15000
+max_aug = 5
 
 def process(item_id: str, item_path: Path, device: Device):
+    device = torch.device(device)
     affinities = affinity_table.build(item_id, device)[None]
-    protein, ligand = read_item(item_path)
+    protein, ligand = read_item(item_path, device)
     if protein.num_atoms > max_num_atoms:
         processed_items.save(item_id)
         return
     if '-' in item_id:
         pdb_id, chain_id = item_id.split('-')
-        chain_ids = [chain_id]
+        all_chain_ids = [chain_id]
     else:
         pdb_id = item_id
-        chain_ids = list(protein.chains)
-    graph = build_graph(protein, ligand, affinities, pdb_id, chain_ids, device)
+        all_chain_ids = list(protein.chains)
+    graph = build_graph(protein, ligand, affinities, pdb_id, all_chain_ids)
     graph.prot_id = item_id
     torch.save(graph, graph_save_dir / f'{item_id}.pt')
+
+    if '-' in item_id and (full_protein_path := parsed_dir / 'mmcif' / f'{pdb_id}.pt').exists():
+        chain = protein.chains[chain_id]
+        full_protein: ModelData = torch.load(full_protein_path, device)
+        chain_dis = {}
+        if full_protein.chains.get(chain_id) == chain:
+            for ref_chain_id, ref_chain in full_protein.chains.items():
+                if ref_chain_id == chain_id:
+                    continue
+                ref_chain_coords = torch.cat([residue.masked_coords for residue in ref_chain.residues], 0)
+                dis = torch.empty(chain.num_residues, device=device)
+                for i, residue in enumerate(chain.residues):
+                    dis[i] = (residue.masked_coords[:, None] - ref_chain_coords[None, :]).pow(2).sum(dim=-1).min()
+                chain_dis[ref_chain_id] = dis.min()
+            aug_cnt = 0
+            sorted_chain_ids = sorted(chain_dis.keys(), key=lambda k: chain_dis[k])
+
+            def dfs(chain_idx: int, chain_ids: list[str], num_atoms: int):
+                nonlocal aug_cnt
+                if num_atoms > max_num_atoms or aug_cnt == max_aug:
+                    return
+                if chain_idx == len(chain_dis):
+                    if len(chain_ids) > 0:
+                        aug_cnt += 1
+                        aug_graph = build_graph(full_protein, None, affinities, pdb_id, [chain_id] + chain_ids)
+                        aug_item_id = f"{pdb_id}-{chain_id}+{','.join(chain_ids)}"
+                        graph.prot_id = item_id
+                        torch.save(aug_graph, graph_save_dir / f"{aug_item_id}.pt")
+                else:
+                    cur_chain_id = sorted_chain_ids[chain_idx]
+                    dfs(chain_idx + 1, chain_ids + [sorted_chain_ids[chain_idx]], num_atoms + full_protein.chains[cur_chain_id].num_atoms)
+                    dfs(chain_idx + 1, chain_ids, num_atoms + full_protein.chains[cur_chain_id].num_atoms)
+            dfs(0, [], chain.num_atoms)
+        else:
+            append_ln(unmatched_chains_save_path, str(item_path))
+
     processed_items.save(item_id)
 
 def get_items():
