@@ -147,7 +147,7 @@ def process(item_id: str, item_path: Path, mp_args: tuple):
             aug_cnt = 0
             sorted_chain_ids = sorted(chain_dis.keys(), key=lambda k: chain_dis[k])
 
-            def dfs(chain_idx: int, chain_ids: list[str], num_atoms: int):
+            def search_aug(chain_idx: int, chain_ids: list[str], num_atoms: int):
                 nonlocal aug_cnt
                 if aug_cnt == max_aug:
                     return
@@ -161,10 +161,10 @@ def process(item_id: str, item_path: Path, mp_args: tuple):
                     return
                 else:
                     cur_chain_id = sorted_chain_ids[chain_idx]
-                    dfs(chain_idx + 1, chain_ids + [sorted_chain_ids[chain_idx]], num_atoms + full_protein.chains[cur_chain_id].num_atoms)
-                    dfs(chain_idx + 1, chain_ids, num_atoms)
+                    search_aug(chain_idx + 1, chain_ids + [sorted_chain_ids[chain_idx]], num_atoms + full_protein.chains[cur_chain_id].num_atoms)
+                    search_aug(chain_idx + 1, chain_ids, num_atoms)
 
-            dfs(0, [], chain.num_atoms)
+            search_aug(0, [], chain.num_atoms)
         else:
             append_ln(unmatched_chains_save_path, str(item_path))
     processed_items.save(item_id)
