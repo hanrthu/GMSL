@@ -103,7 +103,8 @@ if __name__ == "__main__":
         cache_dir=args.graph_cache_dir,
         device='cuda' if device != 'cpu' else 'cpu',
         seed=args.seed,
-        task=args.model_args['task']
+        task=args.model_args['task'],
+        use_aug=args.use_aug,
     )
     for run in range(args.nruns):
         seed += run
@@ -125,7 +126,7 @@ if __name__ == "__main__":
             save_top_k=3
         )
         trainer = pl.Trainer(
-            devices=device if device != "cpu" else None,
+            # devices=device if device != "cpu" else None,
             accelerator="gpu" if device != "cpu" else "cpu",
             max_epochs=args.max_epochs,
             precision='16-mixed' if args.precision!=32 else '32-true',
@@ -140,7 +141,7 @@ if __name__ == "__main__":
             logger=wandb_logger,
             log_every_n_steps=10,
             use_distributed_sampler=False if args.model_args['task']=='multi' else True,
-            strategy=DDPStrategy(find_unused_parameters=False),
+            # strategy=DDPStrategy(find_unused_parameters=False),
             num_sanity_val_steps=2,
             benchmark=False,
         )

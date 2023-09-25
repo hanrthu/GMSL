@@ -89,6 +89,9 @@ class AffinityTable:
             for task in ['lba', 'ppi']
         }
 
+    def get_affinity(self, task: str, pdb_id: str) -> float | None:
+        return self.tables[task].get(pdb_id)
+
     def build(self, pdb_id: str, device: Device) -> torch.Tensor:
         pdb_id = pdb_id.lower()
         value = [

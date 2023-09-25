@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+import gc
 import itertools as it
 from multiprocessing.managers import AcquirerProxy, DictProxy, ListProxy
 import os
@@ -112,30 +113,37 @@ def get_device(pid_to_device_id: DictProxy, device_ref_count: ListProxy, lock: A
             device_id = min(range(num_devices), key=lambda i: device_ref_count[i])
             pid_to_device_id[pid] = device_id
             device_ref_count[device_id] += 1
+        torch.cuda.set_device(device_id)
     return torch.device(device_id)
 
 def process(item_id: str, item_path: Path, mp_args: tuple):
     device = get_device(*mp_args)
+    if (torch.cuda.memory_reserved(device) + torch.cuda.memory_allocated(device) >> 30) >= 20:
+        gc.collect()
+        torch.cuda.empty_cache()
     affinities = affinity_table.build(item_id, device)[None]
     protein, ligand = read_item(item_path, device)
     if protein.num_atoms > max_num_atoms:
         processed_items.save(item_id)
         return
+    save_dir = graph_save_dir / 'data'
     if '-' in item_id:
         pdb_id, chain_id = item_id.split('-')
         all_chain_ids = [chain_id]
+        save_dir /= item_id
     else:
         pdb_id = item_id
         all_chain_ids = list(protein.chains)
     graph = build_graph(protein, ligand, affinities, pdb_id, all_chain_ids)
     graph.prot_id = item_id
-    torch.save(graph, graph_save_dir / f'{item_id}.pt')
+    save_dir.mkdir(exist_ok=True, parents=True)
+    torch.save(graph, save_dir / f'{item_id}.pt')
 
     if '-' in item_id and (full_protein_path := parsed_dir / 'mmcif' / f'{pdb_id}.pt').exists():
         chain = protein.chains[chain_id]
         full_protein: ModelData = torch.load(full_protein_path, device)
         chain_dis = {}
-        if full_protein.chains.get(chain_id) == chain:
+        if (ref_chain := full_protein.chains.get(chain_id)) is not None and ref_chain == chain:
             for ref_chain_id, ref_chain in full_protein.chains.items():
                 if ref_chain_id == chain_id:
                     continue
@@ -156,8 +164,8 @@ def process(item_id: str, item_path: Path, mp_args: tuple):
                         aug_cnt += 1
                         aug_graph = build_graph(full_protein, None, affinities, pdb_id, [chain_id] + chain_ids)
                         aug_item_id = f"{pdb_id}-{chain_id}+{','.join(chain_ids)}"
-                        graph.prot_id = item_id
-                        torch.save(aug_graph, graph_save_dir / f"{aug_item_id}.pt")
+                        aug_graph.prot_id = aug_item_id
+                        torch.save(aug_graph, save_dir / f"{aug_item_id}.pt")
                     return
                 else:
                     cur_chain_id = sorted_chain_ids[chain_idx]

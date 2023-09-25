@@ -1,0 +1,61 @@
+# This is the config file for Heterougeneous Multitask Equivariant Network (HemeNet).
+
+# Lightning Model Settings
+model_args:
+  sdim: 128
+  edge_input_dim: 128
+  vdim: 16
+  depth: 3
+  aggr: 'mean'
+  model_type: hemenet
+  num_radial: 32
+  learning_rate: 1.0e-4
+  weight_decay: 0
+  task: multi
+  readout: task_aware_attention
+  # [weighted_feature, task_aware_attention]
+  r_cutoff: 4.5
+  channel_nf: 128
+  concat_hidden: True
+  hidden_dims:
+    - 256
+    - 256
+    - 256
+    - 256
+    - 256
+    - 256
+  embedding_dim: 256
+  num_relation: 6
+  channel_dim: 14
+  factor_scheduler: 0.75
+  layer_norm: True
+  batch_norm: True
+
+#Dataset Settings
+batch_size: 8
+drop_last: False
+run_name: hemenet
+train_split: train_all
+val_split: val
+test_split: test
+alpha_only: False
+num_workers: 4
+graph_cache_dir: processed-data/graph/data
+
+# Trainer Settings
+device:
+  - 0
+  - 1
+  - 2
+  - 3
+nruns: 3
+wandb: False
+save_dir: hemenet-aug
+gradient_clip_val: 10
+load_ckpt: null
+seed: 817
+precision: 16
+batch_accum_grad: 1
+max_epochs: 30
+
+use_aug: true
