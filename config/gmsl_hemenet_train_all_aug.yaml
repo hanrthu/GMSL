@@ -43,11 +43,6 @@ num_workers: 4
 graph_cache_dir: processed-data/graph/data
 
 # Trainer Settings
-device:
-  - 0
-  - 1
-  - 2
-  - 3
 nruns: 3
 wandb: False
 save_dir: hemenet-aug

@@ -1,30 +1,25 @@
-
+from argparse import ArgumentParser
+from datetime import datetime
 import json
 import os
 import os.path as osp
-import random
-import time
-from argparse import ArgumentParser
-from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+import time
 
 import pandas as pd
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import (
+    LearningRateMonitor, ModelCheckpoint,
+    ModelSummary,
+)
+from pytorch_lightning.loggers import WandbLogger
 import torch
 import wandb
 import yaml
-from pytorch_lightning.callbacks import (LearningRateMonitor, ModelCheckpoint,
-                                         ModelSummary)
-from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.strategies.ddp import DDPStrategy
-# from itertools import cycle
-from torch.utils.data import Sampler
+
 from utils.datamodule import GMSLDataModule
-from torch_geometric.loader import DataLoader
-from utils.multitask_data import CustomMultiTaskDataset
 from utils.task_models import AffinityModel, MultiTaskModel, PropertyModel
-from utils.datamodule import LiteMultiTaskDataset
+
 try:
     MODEL_DIR = osp.join(osp.dirname(osp.realpath(__file__)), "models")
 except NameError:
@@ -73,7 +68,10 @@ def init_pytorch_settings(args):
 if __name__ == "__main__":
     args = get_argparse()
     init_pytorch_settings(args)
-    device = args.device
+    devices = 'auto'
+    if os.getenv('CUDA_VISIBLE_DEVICES') is None:
+        # make 韩导 happy
+        devices = args.device
     name = args.run_name + time.strftime("%Y-%m-%d-%H-%M-%S")
     if args.wandb:
         wandb.init(project='gmsl_main', name=name)
@@ -101,7 +99,7 @@ if __name__ == "__main__":
         val_split=args.val_split,
         test_split=args.test_split,
         cache_dir=args.graph_cache_dir,
-        device='cuda' if device != 'cpu' else 'cpu',
+        device='cuda' if devices != 'cpu' else 'cpu',
         seed=args.seed,
         task=args.model_args['task'],
         use_aug=args.use_aug,
@@ -126,8 +124,7 @@ if __name__ == "__main__":
             save_top_k=3
         )
         trainer = pl.Trainer(
-            # devices=device if device != "cpu" else None,
-            accelerator="gpu" if device != "cpu" else "cpu",
+            devices=devices,
             max_epochs=args.max_epochs,
             precision='16-mixed' if args.precision!=32 else '32-true',
             callbacks=[
