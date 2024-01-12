@@ -51,9 +51,11 @@ def gen_protein_property_uniprots(json_dir: str, single=True):
     uniprot_dict = {}
     # print(len(info_dict))
     info_dict_new = {}
+    count = 0
     for k, v in info_dict.items():
         if single:
             if len(v) != 1:
+                count += 1
                 continue
             else:
                 uniprot_id = v[0]
@@ -75,6 +77,7 @@ def gen_protein_property_uniprots(json_dir: str, single=True):
                     else:
                         uniprot_dict[uniprot_id].append(k)
     # print("Unitest:", len(uniprot_dict), len(info_dict_new))
+    print("Abnormal:", count)
     return uniprot_dict, info_dict_new
     
 def save_dataset_info(dir, complex_list):
@@ -191,12 +194,18 @@ def gen_label(pdb_ids, ec_labels, go_labels, ppi_labels, lba_labels, ec_uniprot_
     for pdb_id in pdb_ids:
         if '-' in pdb_id:
             if pdb_id in ec_labels:
-                uniprots = ec_info_dict[pdb_id]
+                if pdb_id in ec_info_dict:
+                    uniprots = ec_info_dict[pdb_id]
+                else:
+                    uniprots = []
                 single_ec_label = [ec_labels[pdb_id]]
             else:
                 single_ec_label = [-1]
             if pdb_id in go_labels:
-                uniprots = go_info_dict[pdb_id]
+                if pdb_id in go_info_dict:
+                    uniprots = go_info_dict[pdb_id]
+                else:
+                    uniprots = []
                 single_go_label = [go_labels[pdb_id]]
             else:
                 single_go_label = [-1]
@@ -228,6 +237,7 @@ def gen_label(pdb_ids, ec_labels, go_labels, ppi_labels, lba_labels, ec_uniprot_
             lba_label = lba_labels[pdb_id]
         else:
             lba_label = -1
+        # uniform_labels[pdb_id] = {"uniprots":uniprots, "ec": single_ec_label, "go": single_go_label, "ppi": ppi_label, "lba": lba_label}
         uniform_labels[pdb_id] = {"uniprots":uniprots, "ec": single_ec_label, "go": single_go_label, "ppi": ppi_label, "lba": lba_label}
     return uniform_labels
     # print(uniform_labels)
@@ -265,8 +275,11 @@ if __name__ == '__main__':
     full_val_list = test_list_pl[int(0.2*len(test_list_pl)): int(0.6*(len(test_list_pl)))] + test_list_pp[int(0.2*len(test_list_pp)): int(0.6*len(test_list_pp))]
     full_train_list = test_list_pl[: int(0.2*len(test_list_pl))] + test_list_pp[: int(0.2*len(test_list_pp))]
 
+    # 以前使用这种划分时，会去重，其实没必要
     train_list_ec = [ec_uniprot_dict[i] for i in ec_uniprot_dict if i not in test_uniprots_all]
     train_list_go = [go_uniprot_dict[i] for i in go_uniprot_dict if i not in test_uniprots_all]
+    # train_list_ec = [ec_uniprot_dict[i] for i in ec_uniprot_dict]
+    # train_list_go = [go_uniprot_dict[i] for i in go_uniprot_dict]
     print("Train List:", len(train_list_ec), len(train_list_go))
     train_list_all = list(set(train_list_pl + train_list_pp + train_list_ec + train_list_go + full_train_list))
 
@@ -281,7 +294,16 @@ if __name__ == '__main__':
         save_dataset_info('../datasets/MultiTask/train.txt', full_train_list)
         save_dataset_info('../datasets/MultiTask/val.txt', full_val_list)
         save_dataset_info('../datasets/MultiTask/test.txt', full_test_list)
-
+    # with open('../datasets/PropertyPrediction/train.txt', 'r') as f:   
+    #     train_list_all = f.readlines()
+    #     train_list_all = [i.strip() for i in train_list_all]
+    # with open('../datasets/PropertyPrediction/val.txt', 'r') as f:
+    #     full_val_list = f.readlines()
+    #     full_val_list = [i.strip() for i in full_val_list]
+    # with open('../datasets/PropertyPrediction/test.txt', 'r') as f:
+    #     full_test_list = f.readlines()
+    #     full_test_list = [i.strip() for i in full_test_list]
+    # print(len(train_list_all), len(full_val_list), len(full_test_list))
     uniformed_label_dict = gen_label(train_list_all+full_test_list+full_val_list, ec_labels, go_labels, ppi_labels, lba_labels, ec_uniprot_dict, go_uniprot_dict, ec_info_dict, go_info_dict, pp_info_dict, pl_info_dict)    
     print("An example of the processed unified label:\n", full_test_list[0], ": ", uniformed_label_dict[full_test_list[0]])
     if os.path.exists('../datasets/MultiTask/uniformed_labels.json'):

@@ -102,15 +102,15 @@ class HemeNet(nn.Module):
         coord_hiddens = []
         layer_input = input
         coord_input = coords
-        ieconv_edge_feature = self.get_ieconv_edge_feature(coords, input, channel_weights, edge_list)
+        # ieconv_edge_feature = self.get_ieconv_edge_feature(coords, input, channel_weights, edge_list)
 
         for i in range(len(self.layers)):
             # edge message passing
             node_hidden, coord_hidden = self.layers[i](layer_input, edge_list, coord_input, channel_attr, channel_weights, 
                 edge_weights, edge_attr=edge_attr, node_attr=node_attr)
             # ieconv layer
-            if self.use_ieconv:
-                node_hidden = node_hidden + self.ieconvs[i](layer_input, ieconv_edge_feature, edge_list, edge_weights)
+            # if self.use_ieconv:
+            #     node_hidden = node_hidden + self.ieconvs[i](layer_input, ieconv_edge_feature, edge_list, edge_weights)
             node_hidden = self.dropout(node_hidden)
             # if self.short_cut and node_hidden.shape == layer_input.shape:
             #     node_hidden = node_hidden + layer_input

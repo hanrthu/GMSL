@@ -123,7 +123,10 @@ def hetero_graph_transform(
         start_idx = torch.arange(len(res_info) - 1, device=device)[res_info[:-1] != res_info[1:]] + 1
         chain = atom_chain_id.gather(0, torch.cat([start_idx.new_tensor([0]), start_idx]))
         channel_weights = torch.ones((len(pos), 1), device=device) # [N, 1]
-        residue_elements = None
+        residue_elements = torch.as_tensor(protein_df['element'].map(element_mapping).array, dtype=torch.long, device=device)
+        if len(ligand_df) != 0:
+            ligand_elements = torch.as_tensor(list(map(element_mapping, ligand_df['element'])), dtype=torch.long, device=device)
+            residue_elements = torch.cat([residue_elements, ligand_elements], dim=-1)
         max_channel = 1
         protein_feats = torch.as_tensor(list(map(amino_acids, protein_df['element'])), dtype=torch.long, device=device)
     # end = datetime.now()

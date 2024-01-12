@@ -2,6 +2,7 @@ import os
 import random
 
 import torch
+import pickle
 from torch_geometric.data.dataset import IndexType
 from torch_geometric.data import Dataset
 from torch.utils.data import Sampler
@@ -45,7 +46,7 @@ class GMSLDataModule(pl.LightningDataModule):
             self.device = torch.device(local_rank)
 
     def setup(self, stage: Optional[str] = None):
-        print(f"Hello from rank {self.trainer.global_rank}")
+        # print(f"Hello from rank {self.trainer.global_rank}")
         self.train_dataset = LiteMultiTaskDataset(graph_cache_dir=self.cache_dir, split=self.train_split, task=self.task)
         if self.task == 'multi':
             self.lba_indices, self.ppi_indices, self.property_indices= self.train_dataset.gen_data_indices(self.train_dataset.complexes)
@@ -54,32 +55,30 @@ class GMSLDataModule(pl.LightningDataModule):
         self.num_train_batches = (len(self.train_dataset) + self.batch_size - 1) // self.batch_size
         self.set_up_ddp(self.trainer.local_rank, self.trainer.global_rank, self.trainer.world_size)
 
-
-
     def train_dataloader(self):
-        if self.task == 'multi':
-            print("Using Multitask Dataloader")
-            return DataLoader(
-                self.train_dataset,
-                num_workers=self.num_workers,
-                pin_memory=True,
-                persistent_workers=self.num_workers > 0,
-                batch_sampler=GMSLBatchSampler(lba_data=self.lba_indices, ppi_data=self.ppi_indices,
-                                         property_data=self.property_indices, batch_size=self.batch_size,
-                                         num_batches=self.num_train_batches, num_replicas=self.world_size,
-                                         rank=self.trainer.global_rank, random_state=self.random_state),
-                prefetch_factor= 2 if self.num_workers > 0 else None,
-            )
-        else:
-            print("Using Normal Dataloader")
-            return DataLoader(
-                self.train_dataset,
-                batch_size=self.batch_size,
-                shuffle=True,
-                num_workers=self.num_workers,
-                pin_memory=True,
-                persistent_workers=self.num_workers > 0,
-            )
+        # if self.task == 'multi':
+        #     print("Using Multitask Dataloader")
+        #     return DataLoader(
+        #         self.train_dataset,
+        #         num_workers=self.num_workers,
+        #         pin_memory=True,
+        #         persistent_workers=self.num_workers > 0,
+        #         batch_sampler=GMSLBatchSampler(lba_data=self.lba_indices, ppi_data=self.ppi_indices,
+        #                                  property_data=self.property_indices, batch_size=self.batch_size,
+        #                                  num_batches=self.num_train_batches, num_replicas=self.world_size,
+        #                                  rank=self.trainer.global_rank, random_state=self.random_state),
+        #         prefetch_factor = 2 if self.num_workers > 0 else None,
+        #     )
+        # else:
+        print("Using Normal Dataloader")
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            persistent_workers=self.num_workers > 0,
+        )
 
     def val_dataloader(self, shuffle: bool = False):
         return DataLoader(
@@ -136,10 +135,10 @@ class LiteMultiTaskDataset(Dataset):
             self.label_info = json.load(f)
         # 单任务训练/多任务训练切换
         if task != 'multi' and split not in ['val', 'test']:
-            self.filter_task(task)
+            self.filter_task(task, split)
         else:
-            print(f"Complexes for task {task} is: {len(self.complex_files)}")
-    def filter_task(self, task):
+            print(f"Complexes for task {task} and split {split} is: {len(self.complex_files)}")
+    def filter_task(self, task, split):
         task_complexs = []
         short_to_full = {'mf':'molecular_functions', 'bp':'biological_process', 'cc': 'cellular_component'}
         for item in self.complex_files:
@@ -156,7 +155,7 @@ class LiteMultiTaskDataset(Dataset):
                         valid = False
                 if valid:
                     task_complexs.append(item)
-        print(f"Complexes for task {task} is: {len(task_complexs)}")
+        print(f"Complexes for task {task} and {split} is: {len(task_complexs)}")
         self.complex_files = task_complexs
     @property
     def complexes(self):
@@ -201,17 +200,24 @@ class GMSLBatchSampler(Sampler[list[int]]):
                  random_state: np.random.RandomState,
                  shuffle: bool = True,
                  batch_size: int | None = None,
+                 with_lba = True
                  ):
-        super().__init__(lba_data + ppi_data + property_data)
-        print("Hello G", rank, num_replicas)
-        lba_total = len(lba_data)
+        if with_lba:
+            super().__init__(lba_data + ppi_data + property_data)
+        else:
+            super().__init__(ppi_data + property_data)
+        # print("Hello G", rank, num_replicas, "With lba: ", with_lba)
         ppi_total = len(ppi_data)
         property_total = len(property_data)
-        self.lba_data = lba_data[rank * (lba_total // num_replicas): min((rank + 1) * (lba_total// num_replicas), lba_total)]
+        self.with_lba = with_lba
+        if with_lba:
+            lba_total = len(lba_data)
+            self.lba_data = lba_data[rank * (lba_total // num_replicas): min((rank + 1) * (lba_total// num_replicas), lba_total)]
+            if shuffle:
+                random.shuffle(self.lba_data)
         self.ppi_data = ppi_data[rank * (ppi_total // num_replicas): min((rank + 1) * (ppi_total// num_replicas), ppi_total)]
         self.property_data = property_data[rank * (property_total // num_replicas): min((rank + 1) * (property_total// num_replicas), property_total)]
         if shuffle:
-            random.shuffle(self.lba_data)
             random.shuffle(self.ppi_data)
             random.shuffle(self.property_data)
         self.num_batches = num_batches
@@ -228,8 +234,12 @@ class GMSLBatchSampler(Sampler[list[int]]):
         remain_batches = self.num_batches // self.num_replicas
         batch = []
         next_rank = 0
-        data_to_sample = [self.lba_data, self.ppi_data, self.property_data]# [3 data sources]
-        data_idxs = [0, 0, 0]
+        if self.with_lba:
+            data_to_sample = [self.lba_data, self.ppi_data, self.property_data]# [3 data sources]
+            data_idxs = [0, 0, 0]
+        else:
+            data_to_sample = [self.ppi_data, self.property_data]# [3 data sources]
+            data_idxs = [0, 0]
         while remain_batches > 0:
             # lba, ppi, property, 3 types, 2 cut points
             # Each batch contains no more than 1/4 samples that belongs to lba/ppi

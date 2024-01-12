@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Sequence, Tuple
 
 import easydict
 import jinja2
@@ -9,81 +9,9 @@ import torch_cluster
 from torch_geometric.data import Data
 from torch_geometric.typing import OptTensor, SparseTensor
 import yaml
-
+from .alphabet import element_mapping, weight_mapping, amino_acids, bond_dict, affinity_num_dict, class_num_dict
 # https://github.com/drorlab/gvp-pytorch/blob/main/gvp/atom3d.py
-NUM_ATOM_TYPES = 10
-# 这个地方需要改一下编号，尽可能把多的加进去
-element_mapping = lambda x: {
-    'Super': 0,
-    'H' : 1,
-    'C' : 2,
-    'N' : 3,
-    'O' : 4,
-    'S' : 5,
-    'P' : 6,
-    'Metal': 7,
-    'Halogen':8,
-}.get(x, 9)
 
-# The weight mapping for atoms
-weight_mapping = lambda x: {
-    'H' : 1,    
-    'C' : 12,
-    'N' : 14,
-    'O' : 16,
-    'S' : 32,
-    'P' : 31,
-    'Li': 3,  'LI': 3,
-    'Mn': 55, 'MN': 55,
-    'Cl': 35.5,
-    'K' : 39,
-    'Fe': 56, 'FE': 56,
-    'Zn': 65, 'ZN': 65,
-    'Mg': 24, 'MG': 24,
-    'Br': 80, 'BR': 80,
-    'I' : 127,
-}.get(x, 0)
-
-# The order is the same as TorchDrug.Protein
-amino_acids = lambda x: {"GLY": 0, "ALA": 1, "SER": 2, "PRO": 3, "VAL": 4, "THR": 5, "CYS": 6, "ILE": 7, "LEU": 8,
-                  "ASN": 9, "ASP": 10, "GLN": 11, "LYS": 12, "GLU": 13, "MET": 14, "HIS": 15, "PHE": 16,
-                  "ARG": 17, "TYR": 18, "TRP": 19}.get(x, 20)
-
-# 这里可以按照bond来，其实也可以按照距离来
-bond_dict = lambda x: {
-    'C-C': 0,
-    'C-O': 1, 'O-C': 1,
-    'C-N': 2, 'N-C': 2,
-    'C-H': 3, 'H-C': 3,
-    'C-S': 4, 'S-C': 4,
-    'N-H': 5, 'H-N': 5,
-    'N-O': 6, 'O-N': 6,
-    'N-S': 7, 'S-N': 7,
-    'N-N': 8, 
-    'O-H': 9, 'H-O': 9,
-    'O-S': 10,'S-O': 10,
-    'O-O': 11,
-    'S-H': 12, 'H-S': 12,
-    'H-H': 13,
-    # 's1': 14, 
-    # 's2': 15,
-    # 'ss': 16
-}.get(x, 14)
-
-affinity_num_dict = lambda x :{
-    'lba': [1],
-    'ppi': [1],
-    'multi': [1, 1]
-}.get(x, [])
-
-class_num_dict = lambda x : {
-    'ec': [538],
-    'mf': [490],
-    'bp': [1944],
-    'cc': [321],
-    'go': [490, 1944, 321],
-    'multi': [538, 490, 1944, 321]
-}.get(x, [])
 
 def singleton(cls):
     _instance = {}
@@ -102,6 +30,60 @@ def load_config(cfg_file, context=None):
     cfg = yaml.safe_load(instance)
     cfg = easydict.EasyDict(cfg)
     return cfg
+
+class BatchConverter(object):
+    """Callable to convert an unprocessed (labels + strings) batch to a
+    processed (labels + tensor) batch.
+    """
+
+    def __init__(self, alphabet, truncation_seq_length: int = None):
+        self.alphabet = alphabet
+        self.truncation_seq_length = truncation_seq_length
+
+    def list2str(self, seq_list):
+        return ''.join(seq_list)
+    
+    def __call__(self, batch_str: List, batch_idx: torch.Tensor):
+        # RoBERTa uses an eos token, while ESM-1 does not.
+        batch_size = len(torch.unique(batch_idx))
+        split_idx = torch.arange(len(batch_idx) - 1, device=batch_idx.device)[batch_idx[1:] != batch_idx[:-1]].cpu().numpy().tolist()
+        # print(split_idx)
+        split_idx.append(len(batch_idx))
+        split_idx.insert(0, 0)
+        # print(split_idx)
+        seq_str_list = []
+        for i in range(len(split_idx) - 1):
+            seq_str_list.append(batch_str[split_idx[i]: split_idx[i+1]])
+        seq_encoded_list = [self.alphabet.encode(self.list2str(seq_list)) for seq_list in seq_str_list]
+        if self.truncation_seq_length:
+            seq_encoded_list = [seq_str[:self.truncation_seq_length] for seq_str in seq_encoded_list]
+        max_len = max(len(seq_encoded) for seq_encoded in seq_encoded_list)
+        tokens = torch.empty(
+            (
+                batch_size,
+                max_len + int(self.alphabet.prepend_bos) + int(self.alphabet.append_eos),
+            ),
+            dtype=torch.int64,
+        )
+        tokens.fill_(self.alphabet.padding_idx)
+        strs = []
+
+        for i, (seq_str, seq_encoded) in enumerate(
+            zip(seq_str_list, seq_encoded_list)
+        ):
+            strs.append(seq_str)
+            if self.alphabet.prepend_bos:
+                tokens[i, 0] = self.alphabet.cls_idx
+            seq = torch.tensor(seq_encoded, dtype=torch.int64)
+            tokens[
+                i,
+                int(self.alphabet.prepend_bos) : len(seq_encoded)
+                + int(self.alphabet.prepend_bos),
+            ] = seq
+            if self.alphabet.append_eos:
+                tokens[i, len(seq_encoded) + int(self.alphabet.prepend_bos)] = self.alphabet.eos_idx
+
+        return strs, tokens
 
 # Modified torch_geometric.data.data for better representation ability
 class MyData(Data):

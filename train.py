@@ -109,6 +109,7 @@ if __name__ == "__main__":
         seed += run
         pl.seed_everything(seed, workers=True)
         print(f"Starting run {run} with seed {seed}")
+        # print("Model:", args.model_args)
         model = model_cls(**args.model_args)
         print(
             f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
@@ -140,7 +141,7 @@ if __name__ == "__main__":
             logger=wandb_logger,
             log_every_n_steps=10,
             use_distributed_sampler=False if args.model_args['task']=='multi' else True,
-            strategy=DDPStrategy(find_unused_parameters=False),
+            strategy=DDPStrategy(find_unused_parameters=True),
             num_sanity_val_steps=2,
             benchmark=False,
         )

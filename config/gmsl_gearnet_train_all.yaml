@@ -11,7 +11,7 @@ model_args:
   num_radial: 32
   learning_rate: 1.0e-4
   weight_decay: 0
-  readout: vallina
+  readout: weighted_feature
   # [vallina, weighted_feature, task_aware_attention]
   r_cutoff: 4.5
   factor_scheduler: 0.75
@@ -30,7 +30,7 @@ model_args:
 #Dataset Settings
 batch_size: 64
 drop_last: False
-run_name: gearnet
+run_name: gearnet_w
 train_split: train_all
 val_split: val
 test_split: test
@@ -41,11 +41,11 @@ graph_cache_dir: ./datasets/MultiTask_c03_id09/graphs_new/hetero_alphaonly_knn5_
 
 # Trainer Settings
 device:
-  - 0
   - 1
+  - 2
 nruns: 3
-wandb: True
-save_dir: gearnet
+wandb: False
+save_dir: gearnet_w
 gradient_clip_val: 10
 precision: 16
 load_ckpt: null

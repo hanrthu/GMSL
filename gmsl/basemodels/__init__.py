@@ -7,3 +7,5 @@ from .gearnet import GearNetIEConv
 from .tar import TaskAwareReadout, MultiLayerTAR
 from .hemenet import HemeNet
 from .dymean import DyMEAN
+from .gcn import GraphConvolutionalNetwork
+from .gat import GraphAttentionNetwork

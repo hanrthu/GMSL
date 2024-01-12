@@ -2,23 +2,24 @@
 
 # Lightning Model Settings
 model_args:
-  sdim: 256
-  vdim: 16
+  indim: 31
+  sdim: 128
+  outdim: 1
   task: multi
   depth: 3
   aggr: 'mean'
-  model_type: gp
+  model_type: gvp
   num_radial: 32
-  embedding_dim: 256
+  embedding_dim: 128
   learning_rate: 1.0e-4
   weight_decay: 0
   readout: vallina
   r_cutoff: 4.5
   concat_hidden: False
   hidden_dims:
-    - 256
-    - 256
-    - 256
+    - 128
+    - 128
+    - 128
   factor_scheduler: 0.75
   layer_norm: True
   batch_norm: True
@@ -37,8 +38,8 @@ graph_cache_dir: ./datasets/MultiTask_c03_id09/graphs_new/fullatom_knn9_spatial4
 
 # Trainer Settings
 device:
-  - 2
-  - 3
+  - 0
+  - 1
 nruns: 3
 wandb: False
 save_dir: gvp
@@ -46,4 +47,5 @@ gradient_clip_val: 10
 batch_accum_grad: 1
 load_ckpt: null
 seed: 817
+precision: 16
 max_epochs: 30

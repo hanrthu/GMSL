@@ -25,11 +25,12 @@ dependencies:
   - torch-scatter
   - torch-sparse
   - -f https://data.pyg.org/whl/torch-2.0.1%2Bcu118.html
-#  - torchdrug==0.2.1
   - e3nn==0.5.1
   - Cython==3.0.8
   - atom3d==0.2.6
   - easydict==1.10
   - openpyxl==3.1.2
   --biopython==1.83
+  - pandas==2.1.4
+  - fair-esm==2.0.0
   - -i https://pypi.tuna.tsinghua.edu.cn/simple

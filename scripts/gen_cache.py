@@ -23,6 +23,7 @@ class GenMultitask_Cache(object):
         self.root_dir = root_dir
         self.cache_dir = os.path.join(root_dir, "{}.cache".format(split))
         file_dir = os.path.join(root_dir, split+'.txt')
+
         with open(file_dir, 'r') as f:
             self.files = f.readlines()
             self.files = [i.strip() for i in self.files]
@@ -171,8 +172,8 @@ class GenMultitask_Cache(object):
         pickle.dump(self.processed_complexes, open(self.cache_dir, 'wb'))
 
 def main():
-    splits = ['train_all', 'train', 'val', 'test']
-    root_dir = './datasets/MultiTask_c03_id09/'
+    splits = ['train', 'val', 'test']
+    root_dir = './datasets/PropertyPrediction/'
     for split in splits:
         generator = GenMultitask_Cache(root_dir=root_dir, split=split)
         print(f'Processing {split} split...')
