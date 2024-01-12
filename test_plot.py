@@ -6,6 +6,7 @@ import torch
 import json
 import os.path as osp
 import pandas as pd
+import numpy as np
 
 from argparse import ArgumentParser
 from datetime import datetime
@@ -16,6 +17,10 @@ from pytorch_lightning.loggers import WandbLogger
 
 from utils.task_models import MultiTaskModel, PropertyModel, AffinityModel
 from utils.datamodule import GMSLDataModule
+from matplotlib import pyplot as plt
+import seaborn as sns
+
+
 
 try:
     TEST_DIR = osp.join(osp.dirname(osp.realpath(__file__)), "tests")
@@ -98,14 +103,38 @@ if __name__ == "__main__":
     print(
         f"Model consists of {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable params."
         )
-    trainer = pl.Trainer(devices=device if device != "cpu" else None,
-            accelerator="gpu" if device != "cpu" else "cpu",)
-    start_time = datetime.now()
-    trainer.test(model=model, ckpt_path=args.model_path, dataloaders=datamodule, verbose=True)
-    end_time = datetime.now()
-    time_diff = end_time - start_time
-    print(f"Testing time: {time_diff}")
-    # Output the testing result
-    res = model.res
+    for name, parameter in model.named_parameters():
+        if name == 'model.affinity_prompts':
+            affinity_prompt = parameter.squeeze()
+        if name == 'model.property_prompts':
+            property_prompt = parameter.squeeze()
+    prompts = torch.cat([affinity_prompt, property_prompt], dim=0).cpu().detach().numpy()
+    print(prompts.shape)
+    corr = np.corrcoef(prompts)
+    prompts = prompts[:, :200] * 100
+    # np.set_printoptions(precision=3)
+    corr = np.around(corr, 2)
+    print(prompts.shape)
+    labels = ['LBA', 'PPI', 'EC', 'MF', 'BP', 'CC']
+    print(corr)
+    print(prompts.min(), prompts.max())
+    sns.heatmap(corr, annot=corr, linewidth=.5, cmap='BuGn',xticklabels=labels, yticklabels=labels)
+    # 'BuGn' 'YlGnBu'
+    # sns.heatmap(prompts)
+    # plt.matshow(corr)
+    # plt.title('Correlation Map of Task Prompts')
+    plt.savefig('corr.jpg', dpi=300)
+    # plt.savefig('prompts.jpg')
+    
+    # python test_plot.py --config config/gmsl_hemenet_alpha_only.yaml --model_path ./models/hemenet_vallina/lightning_logs/version_18/checkpoints/last.ckpt --hyp_path ./models/hemenet_vallina/lightning_logs/version_18/hparams.yaml --test_name test0928
+    # trainer = pl.Trainer(devices=device if device != "cpu" else None,
+    #         accelerator="gpu" if device != "cpu" else "cpu",)
+    # start_time = datetime.now()
+    # trainer.test(model=model, ckpt_path=args.model_path, dataloaders=datamodule, verbose=True)
+    # end_time = datetime.now()
+    # time_diff = end_time - start_time
+    # print(f"Testing time: {time_diff}")
+    # # Output the testing result
+    # res = model.res
     # with open(os.path.join(model_dir, "res.json"), "w") as f:
     #     json.dump(res, f)

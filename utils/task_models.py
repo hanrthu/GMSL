@@ -29,7 +29,7 @@ class MultiTaskModel(pl.LightningModule):
         readout = 'vallina',
         **kwargs
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet", "dymean"]:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet", "dymean", "gvp", "gcn", "gat", "esm_fix", "esm"]:
             print("Wrong select model type")
             print("Exiting code")
             raise ValueError
@@ -51,7 +51,7 @@ class MultiTaskModel(pl.LightningModule):
         # 4 Multilabel Binary Classification Tasks
         # 之后可以做到Config中
         self.property_info = {'ec': 538, 'mf': 490, 'bp': 1944, 'cc': 321}
-        self.affinity_info = {'lba': 1, 'ppi': 1}
+        self.affinity_info = {'ppi': 1, 'lba': 1}
         # Weight of loss for each task
         # 之后可以变成可学习的版本
         self.property_alphas = [1, 1, 1, 1]
@@ -175,10 +175,9 @@ class MultiTaskModel(pl.LightningModule):
         y_property_preds = []
         y_property_trues = []
         for i, (property_name, class_num) in enumerate(self.property_info.items()):
-
             right = left + class_num
             curr_pred = y_property_pred[i]
-            curr_true = y_property_true[:, left: right]  # to avoid that there are only on element in prediction
+            curr_true = y_property_true[:, left: right]  # to avoid that there are only one element in prediction
             if torch.isnan(curr_pred).any():
                 x = torch.isnan(curr_pred)
                 print("Wrong Prediction of Properties!")
@@ -197,10 +196,11 @@ class MultiTaskModel(pl.LightningModule):
         return y_affinity_preds, y_property_preds, y_affinity_trues, y_property_trues
 
     def on_before_optimizer_step(self, optimizer: Optimizer) -> None:
-        for name, param in self.named_parameters():
-            if param.grad is None:
-                print(name)
-                print("Found Unused Parameters")
+        pass
+        # for name, param in self.named_parameters():
+        #     if param.grad is None:
+        #         print(name)
+        #         print("Found Unused Parameters")
 
     def training_step(self, batch, batch_idx):
         y_a_pred, y_p_pred, coords = self(batch)
@@ -393,7 +393,7 @@ class AffinityModel(pl.LightningModule):
         readout='vallina',
         **kwargs
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet", "dymean"]:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet", "dymean", "gvp", "gcn", "gat", "esm", "esm_fix"]:
             print("Wrong select model type")
             print("Exiting code")
             raise  ValueError
@@ -470,10 +470,11 @@ class AffinityModel(pl.LightningModule):
         return [optimizer], schedulers
 
     def on_before_optimizer_step(self, optimizer: Optimizer) -> None:
-        for name, param in self.named_parameters():
-            if param.grad is None:
-                print(name)
-                print("Found Unused Parameters")
+        pass
+        # for name, param in self.named_parameters():
+        #     if param.grad is None:
+        #         print(name)
+        #         print("Found Unused Parameters")
 
 
     def forward(self, data: Batch) -> Tuple[Tensor, Tensor]:
@@ -595,7 +596,7 @@ class PropertyModel(pl.LightningModule):
         readout='vallina',
         **kwargs,
     ):
-        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet", "dymean"]:
+        if not model_type.lower() in ["painn", "eqgat", "schnet", "segnn", "egnn", "egnn_edge", "gearnet", "hemenet", "dymean", "gvp", "gcn", "gat", "esm", "esm_fix"]:
             print("Wrong select model type")
             print("Exiting code")
             raise ValueError

@@ -12,7 +12,7 @@ from gmsl.modules import GaussianExpansion
 
 from gmsl.register import Register
 register = Register()
-@register('gvp')
+
 class GVPGNN(nn.Module):
     """
     Implements the GVP GNN Backbone
@@ -58,7 +58,7 @@ class GVPGNN(nn.Module):
             x = conv(x, edge_index, edge_attr)
         return x
 
-
+@register('gvp')
 class GVPNetwork(nn.Module):
     """
     Implements the GVP Network including
@@ -68,7 +68,7 @@ class GVPNetwork(nn.Module):
 
     def __init__(
         self,
-        in_dim: int = 11,
+        in_dim: int = 31,
         out_dim: int = 1,
         node_dims: Tuple[int, Optional[int]] = (128, 16),
         edge_dims: Tuple[int, Optional[int]] = (16, 1),
@@ -82,6 +82,7 @@ class GVPNetwork(nn.Module):
         r_cutoff: float = 10.0,
         max_num_neighbors: int = 32,
         regression_type: str = "graph",
+        **kwargs
     ):
         super(GVPNetwork, self).__init__()
 
@@ -89,7 +90,7 @@ class GVPNetwork(nn.Module):
         num_radial = edge_dims[0]
         dim = node_dims[0]
 
-        self.init_embedding = nn.Embedding(num_embeddings=in_dim, embedding_dim=node_dims[0])
+        # self.init_embedding = nn.Embedding(num_embeddings=in_dim, embedding_dim=node_dims[0])
 
         self.W_v = nn.Sequential(
             # LayerNorm((node_dims[0], 0)),
@@ -114,11 +115,11 @@ class GVPNetwork(nn.Module):
         )
 
         self.regression_type = regression_type
-        self.downstream = nn.Sequential(
-            nn.Linear(dim, dim, bias=True),
-            nn.ReLU(),
-            nn.Linear(dim, out_dim, bias=True),
-        )
+        # self.downstream = nn.Sequential(
+        #     nn.Linear(dim, dim, bias=True),
+        #     nn.ReLU(),
+        #     nn.Linear(dim, out_dim, bias=True),
+        # )
         self.max_num_neighbors = max_num_neighbors
 
         self.apply(fn=reset)
@@ -143,20 +144,20 @@ class GVPNetwork(nn.Module):
         d = self.rbf(d)
         edge_attr = d, rel_pos.unsqueeze(-2)
         edge_attr = self.W_e(edge_attr)
-
-        s = self.init_embedding(x).squeeze()
+        s = x
+        # s = self.init_embedding(x).squeeze()
         s, v = self.W_v(s)
         s, v = self.gnn(x=(s, v), edge_index=edge_index, edge_attr=edge_attr)
 
         # node regression/classification ...
-        if self.regression_type == "node":
-            s = self.downstream(s)
-        # graph regression/classification ...
-        elif self.regression_type == "graph":
-            s = scatter(src=s, index=batch, dim=0, reduce="mean")
-            s = self.downstream(s)
+        # if self.regression_type == "node":
+        #     s = self.downstream(s)
+        # # graph regression/classification ...
+        # elif self.regression_type == "graph":
+        #     s = scatter(src=s, index=batch, dim=0, reduce="mean")
+        #     s = self.downstream(s)
 
-        return s
+        return s, v
 
 
 if __name__ == '__main__':

@@ -9,15 +9,17 @@ from operator import length_hint
 import os
 from pathlib import Path
 import pickle
+import esm
 
+import sys 
+sys.path.append('/home/rhan21/Research/DrugDD/GMSL_lite/GMSL/')
 import pandas as pd
 import torch
 from torch.types import Device
 from tqdm import tqdm
 from tqdm.auto import tqdm as tqdm_auto
 import yaml
-
-from utils import hetero_graph_transform, prot_graph_transform
+from utils import hetero_graph_transform, prot_graph_transform, idx_to_residue, BatchConverter
 
 chain_uniprot_info = json.loads(Path('output_info/uniprot_dict_all.json').read_bytes())
 remove_hydrogen: bool = True
@@ -25,6 +27,27 @@ hetero: bool
 supernode: bool = False
 alpha_only: bool
 max_seq_len: int = 3000
+esm_model, esm_alphabet = esm.pretrained.esm2_t33_650M_UR50D() # 先试试一个650M的
+esm_model.eval()
+batch_converter = BatchConverter(esm_alphabet)
+num_gpu = torch.cuda.device_count()
+esm_model_dict = {}
+for gpu_rank in range(num_gpu):
+    esm_model_dict[gpu_rank] = deepcopy(esm_model).to(gpu_rank)
+print(next(esm_model_dict[0].parameters()).device)
+
+def esm_embedding(s, batch):
+    seq = [i[1] for i in map(idx_to_residue, s.cpu().numpy())] #i[1] is the abbreviation
+    _, batch_tokens = batch_converter(seq, batch)
+    # batch_lens = (batch_tokens != self.esm_alphabet.padding_idx).sum(1)
+    with torch.no_grad():
+        results = esm_model_dict[s.device.index](batch_tokens.to(s.device), repr_layers=[33])
+    embeddings = results["representations"][33]
+    # print("Token:", batch_tokens.shape)
+    valid_mask = batch_tokens.ne(esm_alphabet.eos_idx) * batch_tokens.ne(esm_alphabet.cls_idx) * batch_tokens.ne(esm_alphabet.padding_idx)
+    # print(valid_mask.shape)
+    embeddings = torch.flatten(embeddings, start_dim=0, end_dim=-2)[torch.flatten(valid_mask)]
+    return embeddings
 
 def retain_alpha_carbon(item):
     protein_df = item['atoms_protein']
@@ -34,7 +57,7 @@ def retain_alpha_carbon(item):
     # print("Retaining Alpha Carbons:", len(new_protein_df))
     return item
 
-def process(item: dict, device: Device, alpha_only=False, hetero=True):
+def process(item: dict, device: Device, alpha_only=False, hetero=True, use_esm=False):
     if alpha_only:
         item = retain_alpha_carbon(item)
     ligand_df: pd.DataFrame | None = item['atoms_ligand']
@@ -59,7 +82,7 @@ def process(item: dict, device: Device, alpha_only=False, hetero=True):
     uniprot_ids = []
     labels = item['labels']
     pf_ids = []
-    # 目前是按照肽链来区分不同的蛋白，为了便于Unprot分类
+    # 目前是按照肽链来区分不同的蛋白，为了便于Uniprot分类
     for i, chain_id in enumerate(chain_ids):
         lig_flag[torch.as_tensor(res_ligand_df['chain'].array == chain_id, device=device)] = i + 1
         if '-' in item['complex_id']:
@@ -168,7 +191,12 @@ def process(item: dict, device: Device, alpha_only=False, hetero=True):
         print(len(chain_ids), len(graph.functions))
     graph.prot_id = item['complex_id']
     graph.type = 'multi'
-    return graph
+    graph.x = torch.argmax(graph.x, dim=-1)
+    # Pre-generate esm embeddings
+    if use_esm:
+        batch = graph.chains - 1
+        graph.esm_embeddings = esm_embedding(graph.x[lig_flag!=0].int(), batch)
+    return graph.cpu()
 
 # almost copy & paste from tqdm
 @contextmanager
@@ -249,7 +277,7 @@ def correctness_check(complx):
     return correct
 
 def main():
-    global hetero, alpha_only
+    # global hetero, alpha_only
     torch.set_float32_matmul_precision('high')
     torch.multiprocessing.set_start_method('spawn')
     # torch.multiprocessing.set_sharing_strategy('file_system')
@@ -258,9 +286,9 @@ def main():
     args = get_argparse()
     hetero = args.model_args['model_type'] in ['gearnet', 'hemenet', 'dymean']
     # assert hetero
-    print(hetero)
     alpha_only = args.alpha_only
-
+    use_esm = args.model_args['use_esm']
+    print(alpha_only, hetero, use_esm)
     # seed = args.seed
     # pl.seed_everything(seed, workers=True)
     # cache_dir = os.path.join(self.root_dir, self.cache_dir)
@@ -292,17 +320,17 @@ def main():
         print('Transforming complexes...')
         # for i in trange(len(processed_complexes), ncols=80):
         #     processed_complexes[i] = transform_func(processed_complexes[i], 0)
-        num_gpus = torch.cuda.device_count()
+        num_gpus = len(args.device)
         # import resource
         # rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
         # resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
         processed_complexes = process_map(
             process,
-            processed_complexes, it.cycle(range(num_gpus)), it.cycle([alpha_only]), it.cycle([hetero]),
-            max_workers=2, ncols=80, total=len(processed_complexes), chunksize=4,
+            processed_complexes, it.cycle(args.device), it.cycle([alpha_only]), it.cycle([hetero]), it.cycle([use_esm]),
+            max_workers=1, ncols=80, total=len(processed_complexes), chunksize=16,
         )
         os.makedirs(output_root, exist_ok=True)
         for item in tqdm(processed_complexes):
-            torch.save(item.cpu(), output_root/(item['prot_id'] + '.pt'))
+            torch.save(item, output_root/(item['prot_id'] + '.pt'))
 if __name__ == '__main__':
     main()

@@ -1,13 +1,13 @@
-# This is the config file for EQGAT.
+# This is the config file for GCN.
 
 # Lightning Model Settings
 model_args:
-  sdim: 256
-  vdim: 3
-  task: ec
+  input_dim: 256
+  output_dim: 3
+  task: ppi
   depth: 3
   aggr: 'mean'
-  model_type: eqgat
+  model_type: gat
   num_radial: 32
   embedding_dim: 256
   learning_rate: 1.0e-4
@@ -20,17 +20,16 @@ model_args:
     - 256
     - 256
   factor_scheduler: 0.75
-  layer_norm: True
   batch_norm: True
 
 #Dataset Settings
-batch_size: 16
+batch_size: 32
 drop_last: False
-run_name: eqgat
+run_name: egnn
 train_split: train_all
 val_split: val
 test_split: test
-alpha_only: False
+alpha_only: Falsec
 offset_strategy: 1
 num_workers: 4
 graph_cache_dir: ./datasets/MultiTask_c03_id09/graphs_new/fullatom_knn9_spatial4.5_sequential2
@@ -40,9 +39,9 @@ device:
   - 3
 nruns: 3
 wandb: False
-save_dir: eqgat
-gradient_clip_val: 10
 precision: 32
+save_dir: egnn
+gradient_clip_val: 10
 batch_accum_grad: 1
 load_ckpt: null
 seed: 817

@@ -27,7 +27,7 @@ import pandas as pd
 #     return mean, std
 # data = [0.2857, 0.2136, 0.2565]
 # print(std(data))
-result_root = Path('./models/hemenet/hemenet2023-09-21-02-08-36')
+result_root = Path('models/hemenet_vallina/hemenet_vallina2023-12-19-21-32-18')
 result_dir = result_root / 'res.json'
 with open(result_dir, 'r') as f:
     run_results = json.load(f)

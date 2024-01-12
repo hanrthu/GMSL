@@ -30,3 +30,4 @@ dependencies:
   - atom3d==0.2.6
   - easydict==1.10
   - openpyxl==3.1.2
+  - pandas==2.1.4
